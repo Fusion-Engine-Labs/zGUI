@@ -23,7 +23,6 @@ pub fn image(ui: *app.Ui, parent: types.NodeId, options: ImageOptions) !types.No
         .uv1 = options.uv1,
         .tint = options.tint,
     };
-    node.flags.visible = true;
     node.flags.interactive = options.interactive;
     try ui.tree.appendChild(parent, id);
     return id;

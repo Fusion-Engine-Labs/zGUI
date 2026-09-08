@@ -2,44 +2,9 @@ const std = @import("std");
 const types = @import("core/types.zig");
 const style_mod = @import("core/style.zig");
 
-pub const ColorRole = enum {
-    transparent,
-    app,
-    shell,
-    panel,
-    panel_soft,
-    card,
-    control,
-    viewport,
-    stroke,
-    stroke_soft,
-    overlay,
-    overlay_soft,
-    overlay_stroke,
-    interaction_hover,
-    interaction_pressed,
-    text,
-    text_dim,
-    text_muted,
-    text_disabled,
-    icon,
-    icon_selected,
-    icon_disabled,
-    accent,
-    accent_soft,
-    accent_hover,
-    accent_pressed,
-    accent_border,
-    accent_border_strong,
-    violet,
-    violet_soft,
-    success,
-    success_soft,
-    warning,
-    warning_soft,
-    danger,
-    danger_soft,
-};
+/// One tag per `Palette` field, derived so the two can never drift. Adding a
+/// colour to `Palette` is the only edit a new role needs.
+pub const ColorRole = std.meta.FieldEnum(Palette);
 
 pub const RadiusRole = enum {
     none,
@@ -118,6 +83,16 @@ pub const Font = struct {
     body: f32 = 13,
     title: f32 = 16,
     brand: f32 = 18,
+
+    /// Every size the theme can ask for, so a glyph prewarm covers the real
+    /// working set instead of a hand-copied list that drifts when a token moves.
+    pub fn sizes(self: Font) [@typeInfo(Font).@"struct".fields.len]f32 {
+        var out: [@typeInfo(Font).@"struct".fields.len]f32 = undefined;
+        inline for (@typeInfo(Font).@"struct".fields, 0..) |field, i| {
+            out[i] = @field(self, field.name);
+        }
+        return out;
+    }
 };
 
 pub const Metrics = struct {
@@ -176,53 +151,14 @@ pub const Theme = struct {
 
     pub fn color(self: Theme, role: ColorRole) types.Color {
         return switch (role) {
-            .transparent => self.palette.transparent,
-            .app => self.palette.app,
-            .shell => self.palette.shell,
-            .panel => self.palette.panel,
-            .panel_soft => self.palette.panel_soft,
-            .card => self.palette.card,
-            .control => self.palette.control,
-            .viewport => self.palette.viewport,
-            .stroke => self.palette.stroke,
-            .stroke_soft => self.palette.stroke_soft,
-            .overlay => self.palette.overlay,
-            .overlay_soft => self.palette.overlay_soft,
-            .overlay_stroke => self.palette.overlay_stroke,
-            .interaction_hover => self.palette.interaction_hover,
-            .interaction_pressed => self.palette.interaction_pressed,
-            .text => self.palette.text,
-            .text_dim => self.palette.text_dim,
-            .text_muted => self.palette.text_muted,
-            .text_disabled => self.palette.text_disabled,
-            .icon => self.palette.icon,
-            .icon_selected => self.palette.icon_selected,
-            .icon_disabled => self.palette.icon_disabled,
-            .accent => self.palette.accent,
-            .accent_soft => self.palette.accent_soft,
-            .accent_hover => self.palette.accent_hover,
-            .accent_pressed => self.palette.accent_pressed,
-            .accent_border => self.palette.accent_border,
-            .accent_border_strong => self.palette.accent_border_strong,
-            .violet => self.palette.violet,
-            .violet_soft => self.palette.violet_soft,
-            .success => self.palette.success,
-            .success_soft => self.palette.success_soft,
-            .warning => self.palette.warning,
-            .warning_soft => self.palette.warning_soft,
-            .danger => self.palette.danger,
-            .danger_soft => self.palette.danger_soft,
+            inline else => |tag| @field(self.palette, @tagName(tag)),
         };
     }
 
     pub fn radius(self: Theme, role: RadiusRole) f32 {
         return switch (role) {
             .none => 0,
-            .control => self.radius_tokens.control,
-            .card => self.radius_tokens.card,
-            .viewport => self.radius_tokens.viewport,
-            .pill => self.radius_tokens.pill,
-            .round => self.radius_tokens.round,
+            inline else => |tag| @field(self.radius_tokens, @tagName(tag)),
         };
     }
 

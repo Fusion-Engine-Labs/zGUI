@@ -92,18 +92,12 @@ pub const Batcher = struct {
         self.antialias_width = antialiasWidth(text_raster_scale);
         self.shaped_glyph_count = 0;
         self.reused_glyph_count = 0;
-        if (font_atlas) |atlas| {
-            if (atlas.texture.isValid()) {
-                self.solid_texture = atlas.texture;
-                self.solid_uv = atlas.whiteUv();
-            } else {
-                self.solid_texture = .none;
-                self.solid_uv = .{};
-            }
-        } else {
-            self.solid_texture = .none;
-            self.solid_uv = .{};
-        }
+        self.solid_texture = .none;
+        self.solid_uv = .{};
+        if (font_atlas) |atlas| if (atlas.texture.isValid()) {
+            self.solid_texture = atlas.texture;
+            self.solid_uv = atlas.whiteUv();
+        };
 
         for (commands) |command| {
             switch (command) {
@@ -115,7 +109,7 @@ pub const Batcher = struct {
                         try self.addText(text, atlas, text_raster_scale);
                     }
                 },
-                .clip_push => |clip| try self.clip_stack.append(self.allocator, intersectRects(self.currentClip(), clip)),
+                .clip_push => |clip| try self.clip_stack.append(self.allocator, self.currentClip().intersect(clip)),
                 .clip_pop => _ = self.clip_stack.pop(),
             }
         }
@@ -208,66 +202,45 @@ pub const Batcher = struct {
         const inner_count = roundedRectPoints(inner, insetRadii(border.radius, border_width), segments, &inner_points);
         if (outer_count < 3 or inner_count != outer_count) return;
 
-        try self.ensureBatch(self.solid_texture, self.currentClip());
-        const color = border.color.toU32();
-        const base: u32 = @intCast(self.vertices.items.len);
-        try self.vertices.ensureUnusedCapacity(self.allocator, outer_count + inner_count);
-        for (outer_points[0..outer_count]) |point| {
-            self.vertices.appendAssumeCapacity(.{ .pos = .{ point.x, point.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color });
-        }
-        for (inner_points[0..inner_count]) |point| {
-            self.vertices.appendAssumeCapacity(.{ .pos = .{ point.x, point.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color });
-        }
+        // The band between the two rings is exactly a textured ring whose uv is
+        // constant, since uv0 and uv1 are both the atlas's solid texel.
+        try self.addTexturedRing(
+            outer,
+            self.solid_uv,
+            self.solid_uv,
+            self.solid_texture,
+            outer_points[0..outer_count],
+            inner_points[0..inner_count],
+            border.color,
+            border.color,
+        );
 
-        try self.indices.ensureUnusedCapacity(self.allocator, outer_count * 6);
-        var i: usize = 0;
-        while (i < outer_count) : (i += 1) {
-            const next = (i + 1) % outer_count;
-            const outer_current = base + @as(u32, @intCast(i));
-            const outer_next = base + @as(u32, @intCast(next));
-            const inner_current = base + @as(u32, @intCast(outer_count + i));
-            const inner_next = base + @as(u32, @intCast(outer_count + next));
-            self.indices.appendSliceAssumeCapacity(&.{
-                outer_current, outer_next, inner_next,
-                outer_current, inner_next, inner_current,
-            });
-        }
-        self.batches.items[self.batches.items.len - 1].index_count += @intCast(outer_count * 6);
-
-        if (self.antialias_width > 0) {
-            var fringe_points: [rounded_point_count]types.Vec2 = undefined;
-            const fringe_rect = outsetRect(outer, self.antialias_width);
-            const fringe_count = roundedRectPoints(fringe_rect, outsetRadii(border.radius, self.antialias_width), segments, &fringe_points);
-            if (fringe_count == outer_count) {
-                try self.addTexturedRing(
-                    outer,
-                    self.solid_uv,
-                    self.solid_uv,
-                    self.solid_texture,
-                    outer_points[0..outer_count],
-                    fringe_points[0..fringe_count],
-                    border.color,
-                    withAlpha(border.color, 0),
-                );
-            }
-        }
+        try self.addFringe(
+            outer,
+            self.solid_uv,
+            self.solid_uv,
+            self.solid_texture,
+            border.radius,
+            segments,
+            outer_points[0..outer_count],
+            border.color,
+        );
     }
 
     fn addText(self: *Batcher, text: paint.TextPaint, atlas: *FontAtlas, text_raster_scale: f32) !void {
         if (text.color.a == 0 or text.size <= 0) return;
 
-        const raster_scale = sanitizeRasterScale(text_raster_scale);
+        const raster_scale = font_atlas_mod.sanitizeRasterScale(text_raster_scale);
         const run = try self.textRun(text, atlas, raster_scale);
         if (run.glyphs.items.len == 0) return;
         try self.ensureBatch(atlas.texture, self.currentClip());
-        // The paint list places the pen at `padding.top + font_size` because it
-        // has no atlas to ask. A baseline actually sits at the ascent, so shift
-        // the run by the difference; otherwise every line rides low in its box.
-        const baseline_correction = atlas.baselineOffset(text.size) - text.size;
+        // `text.pos` is the top of the line box; the baseline sits one ascent
+        // below it, and the atlas is the only thing that knows the ascent.
+        const baseline = atlas.baselineOffset(text.size);
         for (run.glyphs.items) |positioned| {
             try self.addGlyphQuadToCurrentBatch(.{
                 .x = text.pos.x + positioned.rect.x,
-                .y = text.pos.y + baseline_correction + positioned.rect.y,
+                .y = text.pos.y + baseline + positioned.rect.y,
                 .w = positioned.rect.w,
                 .h = positioned.rect.h,
             }, positioned.glyph, text.color);
@@ -458,23 +431,29 @@ pub const Batcher = struct {
         }
         self.batches.items[self.batches.items.len - 1].index_count += @intCast(count * 3);
 
-        if (self.antialias_width > 0) {
-            var fringe_points: [rounded_point_count]types.Vec2 = undefined;
-            const fringe_rect = outsetRect(rect, self.antialias_width);
-            const fringe_count = roundedRectPoints(fringe_rect, outsetRadii(radius, self.antialias_width), segments, &fringe_points);
-            if (fringe_count == count) {
-                try self.addTexturedRing(
-                    rect,
-                    uv0,
-                    uv1,
-                    texture,
-                    points[0..count],
-                    fringe_points[0..fringe_count],
-                    color,
-                    withAlpha(color, 0),
-                );
-            }
-        }
+        try self.addFringe(rect, uv0, uv1, texture, radius, segments, points[0..count], color);
+    }
+
+    /// Fades the shape's edge out over one antialias width. Both the filled and
+    /// the bordered path need it, and it must use the same segment counts as the
+    /// shape it wraps or the two rings will not correspond.
+    fn addFringe(
+        self: *Batcher,
+        rect: types.Rect,
+        uv0: types.Vec2,
+        uv1: types.Vec2,
+        texture: types.TextureHandle,
+        radius: style_mod.CornerRadii,
+        segments: CornerSegments,
+        inner_points: []const types.Vec2,
+        color: types.Color,
+    ) !void {
+        if (self.antialias_width <= 0) return;
+        var fringe_points: [rounded_point_count]types.Vec2 = undefined;
+        const fringe_rect = rect.outset(self.antialias_width);
+        const fringe_count = roundedRectPoints(fringe_rect, outsetRadii(radius, self.antialias_width), segments, &fringe_points);
+        if (fringe_count != inner_points.len) return;
+        try self.addTexturedRing(rect, uv0, uv1, texture, inner_points, fringe_points[0..fringe_count], color, withAlpha(color, 0));
     }
 
     fn addTexturedRing(
@@ -552,19 +531,6 @@ fn rectEqual(a: types.Rect, b: types.Rect) bool {
     return a.x == b.x and a.y == b.y and a.w == b.w and a.h == b.h;
 }
 
-fn intersectRects(a: types.Rect, b: types.Rect) types.Rect {
-    const min_x = @max(a.x, b.x);
-    const min_y = @max(a.y, b.y);
-    const max_x = @min(a.x + a.w, b.x + b.w);
-    const max_y = @min(a.y + a.h, b.y + b.h);
-    return .{
-        .x = min_x,
-        .y = min_y,
-        .w = @max(0, max_x - min_x),
-        .h = @max(0, max_y - min_y),
-    };
-}
-
 fn uniformBorderWidth(widths: style_mod.Edges) ?f32 {
     if (widths.top != widths.right or widths.top != widths.bottom or widths.top != widths.left) return null;
     return widths.top;
@@ -618,17 +584,8 @@ fn outsetRadii(radius: style_mod.CornerRadii, amount: f32) style_mod.CornerRadii
 }
 
 fn antialiasWidth(raster_scale: f32) f32 {
-    const scale = sanitizeRasterScale(raster_scale);
+    const scale = font_atlas_mod.sanitizeRasterScale(raster_scale);
     return @min(max_antialias_width, 1 / scale);
-}
-
-fn outsetRect(rect: types.Rect, amount: f32) types.Rect {
-    return .{
-        .x = rect.x - amount,
-        .y = rect.y - amount,
-        .w = rect.w + amount * 2,
-        .h = rect.h + amount * 2,
-    };
 }
 
 fn withAlpha(color: types.Color, alpha_factor: f32) types.Color {
@@ -700,11 +657,6 @@ fn uvForPoint(rect: types.Rect, uv0: types.Vec2, uv1: types.Vec2, point: types.V
 
 fn clamp01(v: f32) f32 {
     return @min(1, @max(0, v));
-}
-
-fn sanitizeRasterScale(raster_scale: f32) f32 {
-    if (!std.math.isFinite(raster_scale)) return 1;
-    return @max(0.25, raster_scale);
 }
 
 fn snapToRasterPixel(value: f32, raster_scale: f32) f32 {

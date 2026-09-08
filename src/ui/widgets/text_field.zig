@@ -4,6 +4,9 @@ const app = @import("../core/ui_context.zig");
 const input_mod = @import("../core/input.zig");
 const text_mod = @import("../core/text.zig");
 const dirty = @import("../core/dirty.zig");
+const node_mod = @import("../core/node.zig");
+const panel_mod = @import("panel.zig");
+const label_mod = @import("label.zig");
 
 pub const InputMode = enum {
     text,
@@ -64,7 +67,7 @@ pub const TextField = struct {
 
         const field_height = options.height orelse ui.theme.metrics.control_height;
         const line_height = ui.textLineHeight(ui.theme.font.body);
-        const line_top = if (options.multiline) 1 else @max(0, (field_height - line_height) / 2);
+        const line_top = if (options.multiline) 1 else ui.centeredTextTop(field_height, ui.theme.font.body);
         const text_top = if (options.multiline) 0 else ui.centeredTextTop(field_height, ui.theme.font.body);
 
         self.root_node = try ui.createNode(.panel);
@@ -93,22 +96,13 @@ pub const TextField = struct {
         root.flags.clipped = true;
         try ui.tree.appendChild(parent, self.root_node);
 
-        self.selection_node = try ui.createNode(.panel);
-        const selection = ui.tree.get(self.selection_node).?;
-        selection.style = ui.theme.style(.{ .width = .{ .px = 0 }, .height = .{ .px = line_height }, .margin = .{ .top = line_top }, .background = .accent_soft });
-        selection.flags.visible = false;
-        try ui.tree.appendChild(self.root_node, self.selection_node);
+        self.selection_node = try panel_mod.panel(ui, self.root_node, ui.theme.style(.{ .width = .{ .px = 0 }, .height = .{ .px = line_height }, .margin = .{ .top = line_top }, .background = .accent_soft }));
+        ui.tree.get(self.selection_node).?.flags.visible = false;
 
-        self.text_node = try ui.createNode(.label);
-        ui.tree.get(self.text_node).?.style = ui.theme.textStyle(.{ .width = .hug, .height = .fill, .margin = .{ .top = text_top }, .size = ui.theme.font.body });
-        try ui.tree.setText(self.text_node, displayText(&self, options));
-        try ui.tree.appendChild(self.root_node, self.text_node);
+        self.text_node = try label_mod.label(ui, self.root_node, displayText(&self, options), ui.theme.textStyle(.{ .width = .hug, .height = .fill, .margin = .{ .top = text_top }, .size = ui.theme.font.body }));
 
-        self.caret_node = try ui.createNode(.panel);
-        const caret = ui.tree.get(self.caret_node).?;
-        caret.style = ui.theme.style(.{ .width = .{ .px = 1 }, .height = .{ .px = line_height }, .margin = .{ .top = line_top }, .background = .text });
-        caret.flags.visible = false;
-        try ui.tree.appendChild(self.root_node, self.caret_node);
+        self.caret_node = try panel_mod.panel(ui, self.root_node, ui.theme.style(.{ .width = .{ .px = 1 }, .height = .{ .px = line_height }, .margin = .{ .top = line_top }, .background = .text }));
+        ui.tree.get(self.caret_node).?.flags.visible = false;
         return self;
     }
 
@@ -393,7 +387,7 @@ pub const TextField = struct {
                     previous = null;
                 },
                 '\t' => {
-                    x += if (ui.font_atlas) |atlas| atlas.spaceAdvance(font_size) * 4 else font_size * 0.55 * 4;
+                    x += if (ui.font_atlas) |atlas| atlas.spaceAdvance(font_size) * 4 else text_mod.fallbackAdvance(font_size) * 4;
                     previous = null;
                 },
                 else => if (ui.font_atlas) |atlas| {
@@ -401,7 +395,7 @@ pub const TextField = struct {
                     x += advance.advance;
                     previous = advance.codepoint;
                 } else {
-                    x += font_size * 0.55;
+                    x += text_mod.fallbackAdvance(font_size);
                     previous = codepoint;
                 },
             }
@@ -414,12 +408,17 @@ pub const TextField = struct {
 
     fn xAtIndex(self: *TextField, ui: *app.Ui, target: usize) f32 {
         self.ensureCaretStops(ui) catch return measure(ui, self.buffer.items[0..@min(target, self.buffer.items.len)], ui.theme.font.body);
-        var result: f32 = 0;
-        for (self.caret_stops.items) |stop| {
-            if (stop.index > target) break;
-            result = stop.x;
+        // caret_stops is built in increasing index order, so the last stop at
+        // or before `target` is one binary search rather than a scan from the
+        // start of the buffer on every caret and selection sync.
+        const stops = self.caret_stops.items;
+        var low: usize = 0;
+        var high: usize = stops.len;
+        while (low < high) {
+            const mid = low + (high - low) / 2;
+            if (stops[mid].index <= target) low = mid + 1 else high = mid;
         }
-        return result;
+        return if (low == 0) 0 else stops[low - 1].x;
     }
 
     fn syncVisuals(self: *TextField, ui: *app.Ui, options: Options) !void {
@@ -464,13 +463,7 @@ pub const TextField = struct {
         }
         const caret = ui.tree.get(self.caret_node).?;
         if (!options.multiline and root.bounds.h > 0) {
-            const next_line_height: @TypeOf(caret.style.height) = .{ .px = ui.textLineHeight(ui.theme.font.body) };
-            const next_line_top = @max(0, (root.bounds.h - ui.textLineHeight(ui.theme.font.body)) / 2);
-            if (!std.meta.eql(caret.style.height, next_line_height) or caret.style.margin.top != next_line_top) {
-                caret.style.height = next_line_height;
-                caret.style.margin.top = next_line_top;
-                layout_changed = true;
-            }
+            if (syncLineBox(ui, caret, root.bounds.h)) layout_changed = true;
         }
         if (caret.flags.visible != focused) {
             caret.flags.visible = focused;
@@ -483,13 +476,7 @@ pub const TextField = struct {
 
         const selection = ui.tree.get(self.selection_node).?;
         if (!options.multiline and root.bounds.h > 0) {
-            const next_line_height: @TypeOf(selection.style.height) = .{ .px = ui.textLineHeight(ui.theme.font.body) };
-            const next_line_top = @max(0, (root.bounds.h - ui.textLineHeight(ui.theme.font.body)) / 2);
-            if (!std.meta.eql(selection.style.height, next_line_height) or selection.style.margin.top != next_line_top) {
-                selection.style.height = next_line_height;
-                selection.style.margin.top = next_line_top;
-                layout_changed = true;
-            }
+            if (syncLineBox(ui, selection, root.bounds.h)) layout_changed = true;
         }
         if (self.selectionRange()) |range| {
             const start_x = self.xAtIndex(ui, range.start);
@@ -513,6 +500,19 @@ pub const TextField = struct {
         if (layout_changed) dirty.markLayoutDirty(&ui.tree, self.root_node);
     }
 };
+
+/// Sizes a full-height overlay (the caret or the selection band) to one line of
+/// body text, centred in the field. Returns true when the node moved, so the
+/// caller can mark layout dirty once for the whole sync.
+fn syncLineBox(ui: *app.Ui, node: *node_mod.Node, root_height: f32) bool {
+    const line_height = ui.textLineHeight(ui.theme.font.body);
+    const next_height: @TypeOf(node.style.height) = .{ .px = line_height };
+    const next_top = ui.centeredTextTop(root_height, ui.theme.font.body);
+    if (std.meta.eql(node.style.height, next_height) and node.style.margin.top == next_top) return false;
+    node.style.height = next_height;
+    node.style.margin.top = next_top;
+    return true;
+}
 
 fn displayText(self: *const TextField, options: Options) []const u8 {
     return if (self.buffer.items.len == 0 and options.placeholder.len != 0) options.placeholder else self.buffer.items;

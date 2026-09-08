@@ -7,7 +7,6 @@ pub fn label(ui: *app.Ui, parent: types.NodeId, text: []const u8, style: style_m
     errdefer ui.destroySubtree(id);
     const node = ui.tree.get(id).?;
     node.style = style;
-    node.flags.visible = true;
     try ui.tree.setText(id, text);
     try ui.tree.appendChild(parent, id);
     return id;

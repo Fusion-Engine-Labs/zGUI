@@ -21,8 +21,15 @@ pub const Utf8Iterator = struct {
     }
 };
 
+/// Per-character advance used when no font atlas is available. Anything that
+/// has to reproduce the fallback metrics asks for it here rather than restating
+/// the ratio.
+pub fn fallbackAdvance(size: f32) f32 {
+    return size * 0.55;
+}
+
 pub fn measureFallback(bytes: []const u8, size: f32) TextMetrics {
-    const advance = size * 0.55;
+    const advance = fallbackAdvance(size);
     const line_height = size * 1.25;
     var current_width: f32 = 0;
     var max_width: f32 = 0;

@@ -62,8 +62,9 @@ pub const FontAtlas = struct {
     shelf_x: u32 = 1,
     shelf_y: u32 = 1,
     shelf_height: u32 = 0,
-    dirty: bool = true,
-    full_upload: bool = true,
+    /// Region of `pixels` a backend has yet to upload; null once it is in sync.
+    /// This is the whole of the atlas's upload state — a separate dirty flag
+    /// would only ever restate `dirty_rect != null`.
     dirty_rect: ?DirtyRect = null,
     warned_full: bool = false,
 
@@ -242,8 +243,8 @@ pub const FontAtlas = struct {
         };
     }
 
-    /// Distance from the top of the font's em box to its baseline at `size`.
-    /// Widgets use this with lineHeight to vertically center a text baseline.
+    /// Distance from the top of a line box to the baseline at `size`. Renderer
+    /// backends add this to a `TextPaint.pos` to place a run's baseline.
     pub fn baselineOffset(self: *const FontAtlas, size: f32) f32 {
         return @as(f32, @floatFromInt(self.ascent)) * self.scaleForSize(size);
     }
@@ -279,8 +280,6 @@ pub const FontAtlas = struct {
     }
 
     pub fn markClean(self: *FontAtlas) void {
-        self.dirty = false;
-        self.full_upload = false;
         self.dirty_rect = null;
     }
 
@@ -378,7 +377,6 @@ pub const FontAtlas = struct {
     }
 
     fn markDirty(self: *FontAtlas, rect: DirtyRect) void {
-        self.dirty = true;
         if (self.dirty_rect) |existing| {
             const min_x = @min(existing.x, rect.x);
             const min_y = @min(existing.y, rect.y);
@@ -455,7 +453,7 @@ fn quantizeSize(size: f32) u16 {
     return @intFromFloat(@round(clamped));
 }
 
-fn sanitizeRasterScale(raster_scale: f32) f32 {
+pub fn sanitizeRasterScale(raster_scale: f32) f32 {
     if (!std.math.isFinite(raster_scale)) return 1;
     return @max(0.25, raster_scale);
 }

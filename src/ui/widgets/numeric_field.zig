@@ -45,10 +45,7 @@ pub const NumericField = struct {
 
     fn initFormatted(allocator: std.mem.Allocator, ui: *app.Ui, parent: types.NodeId, kind: Kind, value: anytype, options: Options) !NumericField {
         var buf: [64]u8 = undefined;
-        const formatted = switch (kind) {
-            .i32, .u32 => try std.fmt.bufPrint(&buf, "{d}", .{value}),
-            .f32 => try std.fmt.bufPrint(&buf, "{d}", .{value}),
-        };
+        const formatted = try std.fmt.bufPrint(&buf, "{d}", .{value});
         const field_height = ui.theme.metrics.control_height;
         // Holds either the stepper arrows or a trailing label, so it has to
         // stay wide enough for a glyph at whatever size the theme asks for.
@@ -115,7 +112,7 @@ pub const NumericField = struct {
                 self.invalid = true;
                 try self.syncValue(ui, value.*, options);
                 if (step_count == 0) return .{ .committed = true, .invalid = true };
-                return self.stepI32(ui, value, options, step_count);
+                return self.step(ui, i32, value, options, step_count);
             };
             var next: f32 = @floatFromInt(parsed);
             next = try applyHints(next, options);
@@ -123,7 +120,7 @@ pub const NumericField = struct {
             self.invalid = false;
             try self.syncValue(ui, value.*, options);
         }
-        if (step_count != 0) return self.stepI32(ui, value, options, step_count);
+        if (step_count != 0) return self.step(ui, i32, value, options, step_count);
         if (!event.committed) return .{ .changed = event.changed, .invalid = self.invalid };
         return .{ .changed = true, .committed = true };
     }
@@ -136,7 +133,7 @@ pub const NumericField = struct {
                 self.invalid = true;
                 try self.syncValue(ui, value.*, options);
                 if (step_count == 0) return .{ .committed = true, .invalid = true };
-                return self.stepU32(ui, value, options, step_count);
+                return self.step(ui, u32, value, options, step_count);
             };
             var next: f32 = @floatFromInt(parsed);
             next = try applyHints(next, options);
@@ -144,7 +141,7 @@ pub const NumericField = struct {
             self.invalid = false;
             try self.syncValue(ui, value.*, options);
         }
-        if (step_count != 0) return self.stepU32(ui, value, options, step_count);
+        if (step_count != 0) return self.step(ui, u32, value, options, step_count);
         if (!event.committed) return .{ .changed = event.changed, .invalid = self.invalid };
         return .{ .changed = true, .committed = true };
     }
@@ -157,19 +154,19 @@ pub const NumericField = struct {
                 self.invalid = true;
                 try self.syncValue(ui, value.*, options);
                 if (step_count == 0) return .{ .committed = true, .invalid = true };
-                return self.stepF32(ui, value, options, step_count);
+                return self.step(ui, f32, value, options, step_count);
             };
             const next = applyHints(parsed, options) catch {
                 self.invalid = true;
                 try self.syncValue(ui, value.*, options);
                 if (step_count == 0) return .{ .committed = true, .invalid = true };
-                return self.stepF32(ui, value, options, step_count);
+                return self.step(ui, f32, value, options, step_count);
             };
             value.* = next;
             self.invalid = false;
             try self.syncValue(ui, value.*, options);
         }
-        if (step_count != 0) return self.stepF32(ui, value, options, step_count);
+        if (step_count != 0) return self.step(ui, f32, value, options, step_count);
         if (!event.committed) return .{ .changed = event.changed, .invalid = self.invalid };
         return .{ .changed = true, .committed = true };
     }
@@ -207,7 +204,7 @@ pub const NumericField = struct {
         }
         try ui.setText(self.trailing_label_node, options.trailing_label);
 
-        const hovered = isWithin(ui, ui.input.hovered, self.text.root_node);
+        const hovered = ui.tree.isDescendantOf(ui.input.hovered, self.text.root_node);
         try ui.setVisible(self.stepper_node, hovered);
         try ui.setVisible(self.trailing_label_node, !hovered and options.trailing_label.len != 0);
         if (ui.input.hovered == self.increment_button or ui.input.hovered == self.decrement_button) ui.requestCursor(.hand);
@@ -217,27 +214,12 @@ pub const NumericField = struct {
         return increment_count - decrement_count;
     }
 
-    fn stepI32(self: *NumericField, ui: *app.Ui, value: *i32, options: Options, count: i32) !NumericResult {
+    /// Stepping is one rule for every value type; only the narrowing back from
+    /// the f32 the arithmetic runs in differs.
+    fn step(self: *NumericField, ui: *app.Ui, comptime T: type, value: *T, options: Options, count: i32) !NumericResult {
         const previous = value.*;
-        const next = try steppedValue(@floatFromInt(previous), options, count);
-        value.* = toI32(next);
-        self.invalid = false;
-        try self.syncValue(ui, value.*, options);
-        return .{ .changed = value.* != previous, .committed = true };
-    }
-
-    fn stepU32(self: *NumericField, ui: *app.Ui, value: *u32, options: Options, count: i32) !NumericResult {
-        const previous = value.*;
-        const next = try steppedValue(@floatFromInt(previous), options, count);
-        value.* = toU32(next);
-        self.invalid = false;
-        try self.syncValue(ui, value.*, options);
-        return .{ .changed = value.* != previous, .committed = true };
-    }
-
-    fn stepF32(self: *NumericField, ui: *app.Ui, value: *f32, options: Options, count: i32) !NumericResult {
-        const previous = value.*;
-        value.* = try steppedValue(previous, options, count);
+        const current: f32 = if (T == f32) previous else @floatFromInt(previous);
+        value.* = narrow(T, try steppedValue(current, options, count));
         self.invalid = false;
         try self.syncValue(ui, value.*, options);
         return .{ .changed = value.* != previous, .committed = true };
@@ -280,19 +262,19 @@ fn stepperButtonStyle(ui: *const app.Ui, top: bool, height: f32, border: f32) @i
     });
 }
 
-fn isWithin(ui: *const app.Ui, candidate: types.NodeId, ancestor: types.NodeId) bool {
-    var current = candidate;
-    while (current != types.invalid_node) {
-        if (current == ancestor) return true;
-        current = (ui.tree.getConst(current) orelse return false).parent;
-    }
-    return false;
-}
-
 fn steppedValue(value: f32, options: Options, count: i32) !f32 {
     const increment = options.step orelse 1;
     if (increment <= 0 or !std.math.isFinite(increment)) return error.InvalidStep;
     return applyHints(value + increment * @as(f32, @floatFromInt(count)), options);
+}
+
+fn narrow(comptime T: type, value: f32) T {
+    return switch (T) {
+        i32 => toI32(value),
+        u32 => toU32(value),
+        f32 => value,
+        else => @compileError("numeric field supports i32, u32 and f32"),
+    };
 }
 
 fn toI32(value: f32) i32 {

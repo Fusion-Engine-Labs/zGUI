@@ -249,18 +249,8 @@ pub const OpenGlRenderer = struct {
             return;
         }
 
-        if (font_atlas.full_upload) {
-            try self.uploadTextureRgba(font_atlas.texture, font_atlas.width, font_atlas.height, font_atlas.pixels);
-            font_atlas.markClean();
-            return;
-        }
-
-        if (font_atlas.dirty) {
-            if (font_atlas.dirty_rect) |rect| {
-                try self.uploadTextureSubRgba(font_atlas.texture, font_atlas.width, rect, font_atlas.pixels);
-            } else {
-                try self.uploadTextureRgba(font_atlas.texture, font_atlas.width, font_atlas.height, font_atlas.pixels);
-            }
+        if (font_atlas.dirty_rect) |rect| {
+            try self.uploadTextureSubRgba(font_atlas.texture, font_atlas.width, rect, font_atlas.pixels);
             font_atlas.markClean();
         }
     }

@@ -7,7 +7,6 @@ pub fn panel(ui: *app.Ui, parent: types.NodeId, style: style_mod.Style) !types.N
     errdefer ui.destroySubtree(id);
     const node = ui.tree.get(id).?;
     node.style = style;
-    node.flags.visible = true;
     try ui.tree.appendChild(parent, id);
     return id;
 }

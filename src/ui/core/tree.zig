@@ -31,7 +31,7 @@ pub const UiTree = struct {
     pub fn createNode(self: *UiTree, kind: node_mod.NodeKind) !types.NodeId {
         if (self.free_list.pop()) |index| {
             const slot = &self.nodes.items[index];
-            const next_generation: u8 = if (slot.generation == std.math.maxInt(u8)) 1 else slot.generation + 1;
+            const next_generation = types.nextGeneration(slot.generation);
             const id = types.makeNodeId(index, next_generation);
             slot.* = node_mod.Node.init(id, next_generation, kind);
             try self.dirty_nodes.append(self.allocator, id);
@@ -188,6 +188,19 @@ pub const UiTree = struct {
         node.dirty.queued = true;
     }
 
+    /// True when `candidate` is `ancestor` or sits anywhere beneath it. The
+    /// tree owns the parent pointers, so containment questions — popup
+    /// dismissal, focus and hover scoping — are answered here rather than by a
+    /// hand-rolled walk per widget.
+    pub fn isDescendantOf(self: *const UiTree, candidate: types.NodeId, ancestor: types.NodeId) bool {
+        var current = candidate;
+        while (current != types.invalid_node) {
+            if (current == ancestor) return true;
+            current = (self.getConst(current) orelse return false).parent;
+        }
+        return false;
+    }
+
     /// Marks a node and every layout-dependent ancestor. Once a previously
     /// propagated node is reached, all remaining ancestors are already dirty.
     pub fn markLayoutDirty(self: *UiTree, id: types.NodeId) void {
@@ -214,7 +227,7 @@ pub const UiTree = struct {
         node.dirty.text = true;
         self.queueDirty(id);
 
-        var child = (self.getConst(id) orelse return).first_child;
+        var child = node.first_child;
         while (child != types.invalid_node) {
             const next = (self.getConst(child) orelse break).next_sibling;
             self.markSubtreeDirty(child);

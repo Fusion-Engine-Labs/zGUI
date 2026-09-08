@@ -57,48 +57,43 @@ pub const DockManager = struct {
         position: dock_node.DockPosition,
     ) !void {
         try self.window_leaves.ensureTotalCapacity(self.window_leaves.count() + 1);
-        const target_node = self.resolveNode(target) orelse return error.InvalidDockTarget;
+        // Validate the target before removeWindow can collapse leaves under it.
+        _ = self.resolveNode(target) orelse return error.InvalidDockTarget;
         try self.removeWindow(window, false);
 
         if (position == .center_tab) {
-            switch (target_node.*) {
-                .leaf => |*leaf| {
-                    try leaf.tabs.append(self.allocator, window);
-                    leaf.active_tab = leaf.tabs.items.len - 1;
-                    self.window_leaves.putAssumeCapacity(window, target);
-                },
-                .split => return error.InvalidDockTarget,
-            }
+            try self.attachToLeaf(target, window);
             self.cleanupEmptyLeaves();
             self.revision +%= 1;
             return;
         }
 
         const result = try self.splitNode(target, position, defaultDockSplitRatio(position));
-        switch (self.resolveNode(result.new_leaf).?.*) {
+        self.attachToLeaf(result.new_leaf, window) catch unreachable;
+        self.cleanupEmptyLeaves();
+        self.revision +%= 1;
+    }
+
+    /// Adds a window as the active tab of a leaf. Callers must have reserved
+    /// `window_leaves` capacity, which is what lets the map write not fail
+    /// after the tab list has already been appended to.
+    fn attachToLeaf(self: *DockManager, leaf_id: types.DockNodeId, window: types.WindowId) !void {
+        const node = self.resolveNode(leaf_id) orelse return error.InvalidDockTarget;
+        switch (node.*) {
             .leaf => |*leaf| {
                 try leaf.tabs.append(self.allocator, window);
                 leaf.active_tab = leaf.tabs.items.len - 1;
-                self.window_leaves.putAssumeCapacity(window, result.new_leaf);
+                self.window_leaves.putAssumeCapacity(window, leaf_id);
             },
-            .split => unreachable,
+            .split => return error.InvalidDockTarget,
         }
-        self.cleanupEmptyLeaves();
-        self.revision +%= 1;
     }
 
     pub fn moveWindowToLeaf(self: *DockManager, window: types.WindowId, target: types.DockNodeId) !void {
         try self.window_leaves.ensureTotalCapacity(self.window_leaves.count() + 1);
         _ = self.resolveNode(target) orelse return error.InvalidDockTarget;
         try self.removeWindow(window, false);
-        switch (self.resolveNode(target).?.*) {
-            .leaf => |*leaf| {
-                try leaf.tabs.append(self.allocator, window);
-                leaf.active_tab = leaf.tabs.items.len - 1;
-                self.window_leaves.putAssumeCapacity(window, target);
-            },
-            .split => return error.InvalidDockTarget,
-        }
+        try self.attachToLeaf(target, window);
         self.cleanupEmptyLeaves();
         self.revision +%= 1;
     }
@@ -315,10 +310,7 @@ pub const DockManager = struct {
 
     fn appendNode(self: *DockManager, node: dock_node.DockNode) !types.DockNodeId {
         if (self.free_list.pop()) |index| {
-            const generation = if (self.generations.items[index] == std.math.maxInt(u8))
-                1
-            else
-                self.generations.items[index] + 1;
+            const generation = types.nextGeneration(self.generations.items[index]);
             self.nodes.items[index] = node;
             self.generations.items[index] = generation;
             self.alive.items[index] = true;

@@ -41,7 +41,7 @@ pub const WindowManager = struct {
             break :blk next;
         };
         const generation: u8 = if (reused_index != null)
-            nextGeneration(types.windowGeneration(self.windows.items[index].id))
+            types.nextGeneration(types.windowGeneration(self.windows.items[index].id))
         else
             1;
         const id = types.makeWindowId(index, generation);
@@ -109,10 +109,6 @@ pub const WindowManager = struct {
         return z;
     }
 };
-
-fn nextGeneration(current: u8) u8 {
-    return if (current == std.math.maxInt(u8)) 1 else current + 1;
-}
 
 test "closed window slots are reused with a fresh generation" {
     var windows = WindowManager.init(std.testing.allocator);

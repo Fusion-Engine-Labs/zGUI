@@ -139,13 +139,9 @@ const DemoState = struct {
 
     fn setHandleStyle(self: *const DemoState, app_state: *ui.Ui, handle: ui.NodeId, highlighted: bool) void {
         _ = self;
-        if (app_state.nodeStyle(handle)) |current| {
-            const next = if (highlighted) active_handle_color else idle_handle_color;
-            if (std.meta.eql(current.background, next)) return;
-            var style = current;
-            style.background = next;
-            app_state.setStyle(handle, style) catch {};
-        }
+        var style = app_state.nodeStyle(handle) orelse return;
+        style.background = if (highlighted) active_handle_color else idle_handle_color;
+        app_state.setStyle(handle, style) catch {};
     }
 };
 
@@ -177,7 +173,10 @@ pub fn main(init: std.process.Init) !void {
 
     var font_atlas = try ui.FontAtlas.init(init.gpa, font_bytes, 1024, 1024);
     defer font_atlas.deinit();
-    try font_atlas.prewarmAscii(&.{ 14, 15, 16, 17, 18 }, @max(initial_content_scale.x, initial_content_scale.y));
+    // Warm exactly the sizes the theme can ask for; a hand-written list drifts
+    // from the tokens and leaves the first themed frame rasterizing inline.
+    const theme_font_sizes = (ui.Theme{}).font.sizes();
+    try font_atlas.prewarmAscii(&theme_font_sizes, @max(initial_content_scale.x, initial_content_scale.y));
     try gl.syncFontAtlas(&font_atlas);
 
     var state = try ui.Ui.init(init.gpa);
@@ -269,24 +268,20 @@ fn createDockTree(dock: *ui.DockManager) !DemoDockRefs {
     };
 }
 
+/// setStyle already no-ops on an unchanged style and picks layout- vs
+/// paint-dirty itself, so these only have to name the axis.
+fn setNodeAxis(app_state: *ui.Ui, id: ui.NodeId, comptime axis: []const u8, value: f32) void {
+    var style = app_state.nodeStyle(id) orelse return;
+    @field(style, axis) = ui.Size{ .px = @max(0, value) };
+    app_state.setStyle(id, style) catch {};
+}
+
 fn setNodeWidth(app_state: *ui.Ui, id: ui.NodeId, width: f32) void {
-    if (app_state.nodeStyle(id)) |current| {
-        const next: ui.Size = .{ .px = @max(0, width) };
-        if (std.meta.eql(current.width, next)) return;
-        var style = current;
-        style.width = next;
-        app_state.setStyle(id, style) catch {};
-    }
+    setNodeAxis(app_state, id, "width", width);
 }
 
 fn setNodeHeight(app_state: *ui.Ui, id: ui.NodeId, height: f32) void {
-    if (app_state.nodeStyle(id)) |current| {
-        const next: ui.Size = .{ .px = @max(0, height) };
-        if (std.meta.eql(current.height, next)) return;
-        var style = current;
-        style.height = next;
-        app_state.setStyle(id, style) catch {};
-    }
+    setNodeAxis(app_state, id, "height", height);
 }
 
 fn isSplitHighlighted(split: ui.DockNodeId, hovered: ?ui.DockNodeId, active: ?ui.DockNodeId) bool {

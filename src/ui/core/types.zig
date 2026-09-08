@@ -47,6 +47,34 @@ pub const Rect = struct {
             .h = @max(0, self.h - edges.top - edges.bottom),
         };
     }
+
+    /// Grow the rect by `amount` on every side. Culling and antialiasing both
+    /// need to test against a rect slightly larger than the drawn one.
+    pub fn outset(self: Rect, amount: f32) Rect {
+        return .{
+            .x = self.x - amount,
+            .y = self.y - amount,
+            .w = self.w + amount * 2,
+            .h = self.h + amount * 2,
+        };
+    }
+
+    /// The overlap of two rects, empty when they do not touch. Clip stacks and
+    /// paint culling must agree on this exactly, so it lives here rather than
+    /// being restated per layer.
+    pub fn intersect(self: Rect, other: Rect) Rect {
+        const x0 = @max(self.x, other.x);
+        const y0 = @max(self.y, other.y);
+        const x1 = @min(self.x + self.w, other.x + other.w);
+        const y1 = @min(self.y + self.h, other.y + other.h);
+        return .{ .x = x0, .y = y0, .w = @max(0, x1 - x0), .h = @max(0, y1 - y0) };
+    }
+
+    pub fn overlaps(self: Rect, other: Rect) bool {
+        return !self.isEmpty() and !other.isEmpty() and
+            self.x < other.x + other.w and self.x + self.w > other.x and
+            self.y < other.y + other.h and self.y + self.h > other.y;
+    }
 };
 
 pub const Color = packed struct {
@@ -124,28 +152,20 @@ pub fn nodeGeneration(id: NodeId) u8 {
     return @intCast(id >> node_index_bits);
 }
 
-pub fn makeWindowId(index: u32, generation: u8) WindowId {
-    return (@as(u32, generation) << node_index_bits) | index;
-}
+// WindowId and DockNodeId share NodeId's slot-plus-generation encoding, so they
+// share its accessors rather than restating the shift convention three times.
+pub const makeWindowId = makeNodeId;
+pub const windowIndex = nodeIndex;
+pub const windowGeneration = nodeGeneration;
 
-pub fn windowIndex(id: WindowId) u32 {
-    return id & node_index_mask;
-}
+pub const makeDockNodeId = makeNodeId;
+pub const dockNodeIndex = nodeIndex;
+pub const dockNodeGeneration = nodeGeneration;
 
-pub fn windowGeneration(id: WindowId) u8 {
-    return @intCast(id >> node_index_bits);
-}
-
-pub fn makeDockNodeId(index: u32, generation: u8) DockNodeId {
-    return (@as(u32, generation) << node_index_bits) | index;
-}
-
-pub fn dockNodeIndex(id: DockNodeId) u32 {
-    return id & node_index_mask;
-}
-
-pub fn dockNodeGeneration(id: DockNodeId) u8 {
-    return @intCast(id >> node_index_bits);
+/// A recycled slot always advances to a fresh generation, wrapping to 1 rather
+/// than 0 so a stale handle can never resolve against the slot that replaced it.
+pub fn nextGeneration(current: u8) u8 {
+    return if (current == std.math.maxInt(u8)) 1 else current + 1;
 }
 
 pub const invalid_node: NodeId = std.math.maxInt(NodeId);

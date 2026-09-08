@@ -1,10 +1,5 @@
-const types = @import("../core/types.zig");
-const style_mod = @import("../core/style.zig");
-const app = @import("../core/ui_context.zig");
-const panel_mod = @import("panel.zig");
+const toolbar_mod = @import("toolbar.zig");
 
-pub fn tabBar(ui: *app.Ui, parent: types.NodeId, style: style_mod.Style) !types.NodeId {
-    var next = style;
-    next.direction = .row;
-    return panel_mod.panel(ui, parent, next);
-}
+/// A tab bar is a horizontal panel — the same thing a toolbar is. The two names
+/// exist for the reader, not for two behaviours.
+pub const tabBar = toolbar_mod.toolbar;

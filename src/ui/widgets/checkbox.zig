@@ -45,14 +45,10 @@ pub const Checkbox = struct {
         const activated = ui.activated(self.root_node) or
             (ui.isFocused(self.root_node) and (ui.keyPressed(.space) or ui.keyPressed(.enter)));
         if (activated) value.* = !value.*;
-        const box = ui.tree.get(self.box_node) orelse return false;
-        const background = if (value.*) ui.theme.palette.accent else ui.theme.palette.control;
-        const border = if (ui.isFocused(self.root_node)) ui.theme.palette.accent else if (value.*) ui.theme.palette.accent else ui.theme.palette.stroke;
-        if (!@import("std").meta.eql(box.style.background, background) or !@import("std").meta.eql(box.style.border_color, border)) {
-            box.style.background = background;
-            box.style.border_color = border;
-            dirty.markPaintDirty(&ui.tree, self.box_node);
-        }
+        var next = ui.nodeStyle(self.box_node) orelse return false;
+        next.background = if (value.*) ui.theme.palette.accent else ui.theme.palette.control;
+        next.border_color = if (ui.isFocused(self.root_node)) ui.theme.palette.accent else if (value.*) ui.theme.palette.accent else ui.theme.palette.stroke;
+        try ui.setStyle(self.box_node, next);
         try ui.setVisible(self.mark_node, value.*);
         return activated;
     }

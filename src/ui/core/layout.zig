@@ -145,11 +145,31 @@ fn layoutChildren(tree: *tree_mod.UiTree, id: types.NodeId, force_descend: bool,
     updateVisualBounds(tree, id);
 }
 
-fn clampScrollOffsets(node: *node_mod.Node) void {
+/// How far a node can scroll on each axis. Layout is the pass that knows
+/// `content_size` is current, so it owns the limit and every other caller asks
+/// it rather than restating the viewport arithmetic. Both axes come back at
+/// once because this runs per node in the layout pass.
+pub fn maxScrollOffsets(node: *const node_mod.Node) types.Vec2 {
     const viewport_width = @max(0, node.bounds.w - node.style.padding.horizontal());
     const viewport_height = @max(0, node.bounds.h - node.style.padding.vertical());
-    const max_x = @max(0, node.layout.content_size.x - viewport_width);
-    const max_y = @max(0, node.layout.content_size.y - viewport_height);
+    return .{
+        .x = @max(0, node.layout.content_size.x - viewport_width),
+        .y = @max(0, node.layout.content_size.y - viewport_height),
+    };
+}
+
+pub fn maxScroll(node: *const node_mod.Node, axis: enum { x, y }) f32 {
+    const limits = maxScrollOffsets(node);
+    return switch (axis) {
+        .x => limits.x,
+        .y => limits.y,
+    };
+}
+
+pub fn clampScrollOffsets(node: *node_mod.Node) void {
+    const limits = maxScrollOffsets(node);
+    const max_x = limits.x;
+    const max_y = limits.y;
 
     if (node.style.overflow_x == .scroll) {
         node.scroll_offset.x = std.math.clamp(node.scroll_offset.x, 0, max_x);
@@ -284,7 +304,7 @@ fn updateVisualBounds(tree: *tree_mod.UiTree, id: types.NodeId) void {
     // bearings, and every primitive gets an antialiased edge. Keeping this
     // bound conservative makes subtree culling safe at clip boundaries.
     const outset = @max(@as(f32, 1), if (node.text != null) node.style.font_size * 0.25 else 0);
-    var result = outsetRect(node.bounds, outset);
+    var result = node.bounds.outset(outset);
     var child = node.first_child;
     while (child != types.invalid_node) {
         const child_node = tree.getConst(child) orelse break;
@@ -292,15 +312,6 @@ fn updateVisualBounds(tree: *tree_mod.UiTree, id: types.NodeId) void {
         child = child_node.next_sibling;
     }
     node.layout.visual_bounds = result;
-}
-
-fn outsetRect(rect: types.Rect, amount: f32) types.Rect {
-    return .{
-        .x = rect.x - amount,
-        .y = rect.y - amount,
-        .w = rect.w + amount * 2,
-        .h = rect.h + amount * 2,
-    };
 }
 
 fn unionRects(a: types.Rect, b: types.Rect) types.Rect {

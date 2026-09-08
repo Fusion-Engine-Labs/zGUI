@@ -132,7 +132,7 @@ pub const Collapsible = struct {
         const toggled = ui.activated(self.header_node);
         if (toggled) {
             self.expanded = !self.expanded;
-            if (!self.expanded and isWithin(ui, ui.focusedNode(), self.body_node)) ui.clearFocus();
+            if (!self.expanded and ui.tree.isDescendantOf(ui.focusedNode(), self.body_node)) ui.clearFocus();
             if (self.expanded) try ui.setVisible(self.body_node, true);
         }
 
@@ -190,15 +190,6 @@ fn approach(value: f32, target: f32, amount: f32) f32 {
 fn smoothstep(value: f32) f32 {
     const t = std.math.clamp(value, 0, 1);
     return t * t * (3 - 2 * t);
-}
-
-fn isWithin(ui: *const app.Ui, candidate: types.NodeId, ancestor: types.NodeId) bool {
-    var current = candidate;
-    while (current != types.invalid_node) {
-        if (current == ancestor) return true;
-        current = (ui.tree.getConst(current) orelse return false).parent;
-    }
-    return false;
 }
 
 test "collapsible smoothly closes to its header and reopens" {

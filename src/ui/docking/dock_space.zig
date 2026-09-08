@@ -227,9 +227,11 @@ pub const DockSpace = struct {
         self.dock.layout(options.rect);
 
         var result: DockSpaceResult = .{};
+        var resize: ResizeUpdate = .{};
         const overlay_captures_pointer = self.externalOverlayContains(ui);
         if (!overlay_captures_pointer) {
-            result.changed = self.updateResize(ui, options);
+            resize = self.updateResize(ui, options);
+            result.changed = resize.changed;
             if (self.updateTabsAndDrops(ui, options)) result.changed = true;
         }
         try self.ensureNodeCapacity(ui, parent);
@@ -241,7 +243,7 @@ pub const DockSpace = struct {
         try self.applyPaintOrder(ui, parent);
         self.syncDragFeedback(ui, parent);
 
-        if (self.dock.hitTestResizeHandle(ui.input.mouse_pos, options.handle_thickness)) |split| {
+        if (resize.hovered_split) |split| {
             result.cursor = cursorForSplit(self.dock.splitAxis(split) orelse .x);
         }
         if (self.dock.activeResizeSplit()) |split| {
@@ -270,26 +272,31 @@ pub const DockSpace = struct {
         return false;
     }
 
-    fn updateResize(self: *DockSpace, ui: *app.Ui, options: DockSpaceOptions) bool {
+    const ResizeUpdate = struct {
+        changed: bool = false,
+        hovered_split: ?types.DockNodeId = null,
+    };
+
+    fn updateResize(self: *DockSpace, ui: *app.Ui, options: DockSpaceOptions) ResizeUpdate {
         const hovered_split = self.dock.hitTestResizeHandle(ui.input.mouse_pos, options.handle_thickness);
-        if (mousePressed(ui)) {
+        if (ui.mousePressed(.left)) {
             if (hovered_split) |split| {
                 self.dock.beginResize(split, ui.input.mouse_pos) catch {};
             }
         }
 
-        const changed = if (mouseDown(ui))
+        const changed = if (ui.mouseDown(.left))
             self.dock.updateResize(ui.input.mouse_pos)
         else
             false;
 
-        if (mouseReleased(ui)) self.dock.endResize();
-        return changed;
+        if (ui.mouseReleased(.left)) self.dock.endResize();
+        return .{ .changed = changed, .hovered_split = hovered_split };
     }
 
     fn updateTabsAndDrops(self: *DockSpace, ui: *app.Ui, options: DockSpaceOptions) bool {
         var changed = false;
-        if (mousePressed(ui)) {
+        if (ui.mousePressed(.left)) {
             if (self.tabAt(ui.input.mouse_pos, options)) |hit| {
                 _ = self.dock.setActiveWindow(hit.leaf, hit.window);
                 self.drag = .{
@@ -308,7 +315,7 @@ pub const DockSpace = struct {
             }
         }
 
-        if (mouseDown(ui)) {
+        if (ui.mouseDown(.left)) {
             if (self.drag) |*drag| {
                 const dx = ui.input.mouse_pos.x - drag.start_mouse.x;
                 const dy = ui.input.mouse_pos.y - drag.start_mouse.y;
@@ -323,7 +330,7 @@ pub const DockSpace = struct {
             }
         }
 
-        if (mouseReleased(ui)) {
+        if (ui.mouseReleased(.left)) {
             if (self.drag) |drag| {
                 if (drag.dragging) {
                     changed = self.finishDrag(ui.input.mouse_pos, drag) or changed;
@@ -667,25 +674,20 @@ pub const DockSpace = struct {
 
     fn syncDragFeedback(self: *DockSpace, ui: *app.Ui, parent: types.NodeId) void {
         const parent_origin = nodeOrigin(ui, parent);
-        const drag = self.drag orelse {
+        const active_drag = if (self.drag) |drag| (if (drag.dragging) drag else null) else null;
+        const drag = active_drag orelse {
             hideNode(ui, self.overlays.drop_preview);
             hideNode(ui, self.overlays.drag_ghost);
             return;
         };
-        if (!drag.dragging) {
-            hideNode(ui, self.overlays.drop_preview);
-            hideNode(ui, self.overlays.drag_ghost);
-            return;
-        }
 
-        if (self.dock.hitTestLeaf(ui.input.mouse_pos)) |target_leaf| {
-            if (self.dock.nodeRect(target_leaf)) |leaf_rect| {
-                const zone = dropZoneFor(leaf_rect, ui.input.mouse_pos);
-                const preview_rect = dropPreviewRect(leaf_rect, zone);
-                setPanelStyled(ui, self.overlays.drop_preview, preview_rect, parent_origin, .accent_soft, .accent, 2, false, 8);
-            } else {
-                hideNode(ui, self.overlays.drop_preview);
-            }
+        const preview_rect: ?types.Rect = blk: {
+            const target_leaf = self.dock.hitTestLeaf(ui.input.mouse_pos) orelse break :blk null;
+            const leaf_rect = self.dock.nodeRect(target_leaf) orelse break :blk null;
+            break :blk dropPreviewRect(leaf_rect, dropZoneFor(leaf_rect, ui.input.mouse_pos));
+        };
+        if (preview_rect) |rect| {
+            setPanelStyled(ui, self.overlays.drop_preview, rect, parent_origin, .accent_soft, .accent, 2, false, 8);
         } else {
             hideNode(ui, self.overlays.drop_preview);
         }
@@ -757,18 +759,6 @@ fn floatZLessThan(windows: *const window_manager_mod.WindowManager, a: DockWindo
     const za = if (windows.getConst(a)) |window| window.z_index else 0;
     const zb = if (windows.getConst(b)) |window| window.z_index else 0;
     return za < zb;
-}
-
-fn mousePressed(ui: *const app.Ui) bool {
-    return ui.input.mouse_pressed[0];
-}
-
-fn mouseDown(ui: *const app.Ui) bool {
-    return ui.input.mouse_down[0];
-}
-
-fn mouseReleased(ui: *const app.Ui) bool {
-    return ui.input.mouse_released[0];
 }
 
 fn reachableLeafCount(dock: *const dock_manager_mod.DockManager, id: types.DockNodeId) usize {

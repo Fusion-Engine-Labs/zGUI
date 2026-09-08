@@ -608,7 +608,7 @@ pub const Ui = struct {
             node.scroll_target_offset.y -= self.input.scroll_delta.y * scroll_wheel_scale;
         }
 
-        clampScroll(node);
+        layout_mod.clampScrollOffsets(node);
         const changed = before.x != node.scroll_target_offset.x or before.y != node.scroll_target_offset.y;
         if (changed) {
             self.tree.markLayoutDirty(target);
@@ -640,7 +640,7 @@ pub const Ui = struct {
 
             const before = node.scroll_offset;
             const before_target = node.scroll_target_offset;
-            clampScroll(node);
+            layout_mod.clampScrollOffsets(node);
             var changed = before_target.x != node.scroll_target_offset.x or
                 before_target.y != node.scroll_target_offset.y;
             changed = animateNodeScroll(node, self.dt) or changed;
@@ -691,28 +691,9 @@ fn scrollTargetAt(tree: *const tree_mod.UiTree, id: types.NodeId, pos: types.Vec
 }
 
 fn canScrollForDelta(node: *const node_mod.Node, delta: types.Vec2) bool {
-    if (delta.x != 0 and node.style.overflow_x == .scroll and maxScroll(node, .x) > 0) return true;
-    if (delta.y != 0 and node.style.overflow_y == .scroll and maxScroll(node, .y) > 0) return true;
+    if (delta.x != 0 and node.style.overflow_x == .scroll and layout_mod.maxScroll(node, .x) > 0) return true;
+    if (delta.y != 0 and node.style.overflow_y == .scroll and layout_mod.maxScroll(node, .y) > 0) return true;
     return false;
-}
-
-fn clampScroll(node: *node_mod.Node) void {
-    const max_x = maxScroll(node, .x);
-    const max_y = maxScroll(node, .y);
-    if (node.style.overflow_x == .scroll) {
-        node.scroll_offset.x = clamp(node.scroll_offset.x, 0, max_x);
-        node.scroll_target_offset.x = clamp(node.scroll_target_offset.x, 0, max_x);
-    } else {
-        node.scroll_offset.x = 0;
-        node.scroll_target_offset.x = 0;
-    }
-    if (node.style.overflow_y == .scroll) {
-        node.scroll_offset.y = clamp(node.scroll_offset.y, 0, max_y);
-        node.scroll_target_offset.y = clamp(node.scroll_target_offset.y, 0, max_y);
-    } else {
-        node.scroll_offset.y = 0;
-        node.scroll_target_offset.y = 0;
-    }
 }
 
 fn animateNodeScroll(node: *node_mod.Node, dt: f32) bool {
@@ -731,18 +712,6 @@ fn scrollStep(dt: f32) f32 {
 fn approach(current: f32, target: f32, t: f32) f32 {
     if (@abs(target - current) < 0.25) return target;
     return current + (target - current) * t;
-}
-
-fn maxScroll(node: *const node_mod.Node, axis: enum { x, y }) f32 {
-    const viewport = node.bounds.inset(node.style.padding);
-    return switch (axis) {
-        .x => @max(0, node.layout.content_size.x - viewport.w),
-        .y => @max(0, node.layout.content_size.y - viewport.h),
-    };
-}
-
-fn clamp(v: f32, lo: f32, hi: f32) f32 {
-    return @min(hi, @max(lo, v));
 }
 
 test "idle frames reuse draw data and rebuild on change" {

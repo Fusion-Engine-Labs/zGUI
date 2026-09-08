@@ -49,7 +49,7 @@ pub const SelectionList = struct {
     }
 
     pub fn close(self: *SelectionList, ui: *app.Ui) !void {
-        if (isDescendant(ui, ui.focusedNode(), self.root_node)) ui.clearFocus();
+        if (ui.tree.isDescendantOf(ui.focusedNode(), self.root_node)) ui.clearFocus();
         try ui.setVisible(self.root_node, false);
         self.open = false;
     }
@@ -103,7 +103,7 @@ pub const SelectionList = struct {
                 return selected;
             }
         }
-        if (ui.mousePressed(.left) and !isDescendant(ui, ui.input.hovered, self.root_node)) {
+        if (ui.mousePressed(.left) and !ui.tree.isDescendantOf(ui.input.hovered, self.root_node)) {
             try self.close(ui);
             return null;
         }
@@ -124,15 +124,6 @@ fn applyItemStyle(ui: *app.Ui, item: types.NodeId) void {
     next.hover_background = ui.theme.color(.interaction_hover);
     next.pressed_background = ui.theme.color(.interaction_pressed);
     ui.setStyle(item, next) catch {};
-}
-
-fn isDescendant(ui: *const app.Ui, candidate: types.NodeId, ancestor: types.NodeId) bool {
-    var node = candidate;
-    while (node != types.invalid_node) {
-        if (node == ancestor) return true;
-        node = if (ui.tree.getConst(node)) |entry| entry.parent else types.invalid_node;
-    }
-    return false;
 }
 
 test "rows centre their labels and stay clear of the popup border" {

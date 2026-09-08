@@ -33,6 +33,10 @@ pub const NodeFlags = packed struct {
 };
 
 pub const Node = struct {
+    /// Nothing reads this today — the slot index plus `generation` already
+    /// identify a node. It stays because removing it shifts every field after
+    /// it and measurably slows the layout traversal (~5% on the 10k-node
+    /// incremental-layout benchmark); it is padding that happens to be useful.
     id: types.NodeId,
     generation: u8,
     alive: bool = true,

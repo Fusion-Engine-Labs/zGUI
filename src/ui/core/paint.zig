@@ -29,6 +29,9 @@ pub const BorderPaint = struct {
 pub const TextPaint = struct {
     source_node: types.NodeId = 0,
     text_revision: u32 = 0,
+    /// Top-left of the text's line box, not its baseline. Placing the baseline
+    /// needs the font's ascent, which only a renderer's atlas knows, so that
+    /// step belongs to the backend rather than to this list.
     pos: types.Vec2,
     text: []const u8,
     size: f32,
@@ -72,11 +75,6 @@ pub const PaintStats = struct {
     culled_commands: u32 = 0,
 };
 
-pub fn buildPaintList(tree: *const tree_mod.UiTree, root: types.NodeId, list: *PaintList) !void {
-    var stats: PaintStats = .{};
-    try buildPaintNode(tree, root, list, null, &stats);
-}
-
 pub fn buildPaintListMeasured(tree: *const tree_mod.UiTree, root: types.NodeId, list: *PaintList) !PaintStats {
     var stats: PaintStats = .{};
     try buildPaintNode(tree, root, list, null, &stats);
@@ -89,7 +87,7 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
     stats.visited_nodes += 1;
 
     if (inherited_clip) |clip| {
-        if (!rectsIntersect(node.layout.visual_bounds, clip)) {
+        if (!node.layout.visual_bounds.overlaps(clip)) {
             stats.culled_subtrees += 1;
             return;
         }
@@ -100,7 +98,7 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
     // already reserve this one-pixel outset, so this keeps control borders
     // from losing their final edge at a clipping boundary.
     const effective_clip = if (clipped)
-        if (inherited_clip) |clip| intersectRects(clip, outsetRect(node.bounds, 1)) else outsetRect(node.bounds, 1)
+        if (inherited_clip) |clip| clip.intersect(node.bounds.outset(1)) else node.bounds.outset(1)
     else
         inherited_clip;
     if (effective_clip) |clip| {
@@ -113,26 +111,38 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
 
     var background = node.style.background;
     var border = node.style.border_color;
-    if (node.kind == .button) {
+    if (node.flags.interactive) {
+        // Any interactive node gets the feedback its style asks for. Buttons
+        // additionally derive one when the style names no colour, since a bare
+        // button is still expected to look pressable; other kinds stay put.
+        const derive = node.kind == .button;
         if (node.flags.pressed) {
-            background = node.style.pressed_background orelse darken(background, 24);
-            border = node.style.pressed_border_color orelse lighten(border, 36);
+            background = node.style.pressed_background orelse if (derive) darken(background, 24) else background;
+            border = node.style.pressed_border_color orelse if (derive) lighten(border, 36) else border;
         } else if (node.flags.hovered) {
-            background = node.style.hover_background orelse lighten(background, 20);
-            border = node.style.hover_border_color orelse lighten(border, 20);
+            background = node.style.hover_background orelse if (derive) lighten(background, 20) else background;
+            border = node.style.hover_border_color orelse if (derive) lighten(border, 20) else border;
         }
     }
 
-    if (background.a != 0 and commandVisible(node.bounds, 1, effective_clip, stats)) {
+    // Background, image and border all test the same box against the same clip,
+    // so the geometry is resolved once and each suppressed command is counted.
+    // An empty box is not a cull — it never had anything to draw.
+    const box_visible = boxVisible(node.bounds, 1, effective_clip);
+    const box_culled = !box_visible and !node.bounds.isEmpty();
+
+    if (background.a != 0) if (box_visible) {
         try list.append(.{ .rect = .{
             .rect = node.bounds,
             .color = background,
             .radius = node.style.radius,
         } });
-    }
+    } else if (box_culled) {
+        stats.culled_commands += 1;
+    };
 
     if (node.image) |image| {
-        if (image.texture.isValid() and commandVisible(node.bounds, 1, effective_clip, stats)) {
+        if (image.texture.isValid()) if (box_visible) {
             const image_rect = if (node.kind == .button) node.bounds.inset(node.style.padding) else node.bounds;
             const tint = if (node.kind == .button and node.flags.pressed)
                 image.pressed_tint orelse image.tint
@@ -148,18 +158,22 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
                 .tint = tint,
                 .radius = node.style.radius,
             } });
-        }
+        } else if (box_culled) {
+            stats.culled_commands += 1;
+        };
     }
 
     const border_widths = node.style.border_edges orelse style_mod.Edges.all(node.style.border_width);
-    if (hasBorder(border_widths) and border.a != 0 and commandVisible(node.bounds, 1, effective_clip, stats)) {
+    if (hasBorder(border_widths) and border.a != 0) if (box_visible) {
         try list.append(.{ .border = .{
             .rect = node.bounds,
             .color = border,
             .widths = border_widths,
             .radius = node.style.radius,
         } });
-    }
+    } else if (box_culled) {
+        stats.culled_commands += 1;
+    };
 
     if (node.text) |text| if (commandVisible(node.bounds, @max(@as(f32, 1), node.style.font_size * 0.25), effective_clip, stats)) {
         try list.append(.{ .text = .{
@@ -167,7 +181,7 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
             .text_revision = node.text_revision,
             .pos = .{
                 .x = node.bounds.x + textLeft(node),
-                .y = node.bounds.y + node.style.padding.top + node.style.font_size,
+                .y = node.bounds.y + node.style.padding.top,
             },
             .text = text,
             .size = node.style.font_size,
@@ -193,7 +207,7 @@ fn textLeft(node: *const node_mod.Node) f32 {
     const padding = node.style.padding;
     if (node.style.text_align == .start) return padding.left;
     if (node.measured_text_font_size != node.style.font_size) return padding.left;
-    const inner = node.bounds.w - padding.left - padding.right;
+    const inner = node.bounds.w - padding.horizontal();
     const slack = @max(0, inner - node.measured_text.x);
     return padding.left + switch (node.style.text_align) {
         .start => 0,
@@ -202,38 +216,16 @@ fn textLeft(node: *const node_mod.Node) f32 {
     };
 }
 
-fn commandVisible(bounds: types.Rect, outset: f32, clip: ?types.Rect, stats: *PaintStats) bool {
+fn boxVisible(bounds: types.Rect, outset: f32, clip: ?types.Rect) bool {
     if (bounds.isEmpty()) return false;
-    if (clip) |active| {
-        if (!rectsIntersect(outsetRect(bounds, outset), active)) {
-            stats.culled_commands += 1;
-            return false;
-        }
-    }
-    return true;
+    const active = clip orelse return true;
+    return bounds.outset(outset).overlaps(active);
 }
 
-fn outsetRect(rect: types.Rect, amount: f32) types.Rect {
-    return .{
-        .x = rect.x - amount,
-        .y = rect.y - amount,
-        .w = rect.w + amount * 2,
-        .h = rect.h + amount * 2,
-    };
-}
-
-fn rectsIntersect(a: types.Rect, b: types.Rect) bool {
-    return !a.isEmpty() and !b.isEmpty() and
-        a.x < b.x + b.w and a.x + a.w > b.x and
-        a.y < b.y + b.h and a.y + a.h > b.y;
-}
-
-fn intersectRects(a: types.Rect, b: types.Rect) types.Rect {
-    const x0 = @max(a.x, b.x);
-    const y0 = @max(a.y, b.y);
-    const x1 = @min(a.x + a.w, b.x + b.w);
-    const y1 = @min(a.y + a.h, b.y + b.h);
-    return .{ .x = x0, .y = y0, .w = @max(0, x1 - x0), .h = @max(0, y1 - y0) };
+fn commandVisible(bounds: types.Rect, outset: f32, clip: ?types.Rect, stats: *PaintStats) bool {
+    if (boxVisible(bounds, outset, clip)) return true;
+    if (!bounds.isEmpty()) stats.culled_commands += 1;
+    return false;
 }
 
 fn lighten(color: types.Color, amount: u8) types.Color {
