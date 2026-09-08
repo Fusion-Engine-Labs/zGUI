@@ -204,17 +204,17 @@ pub const Theme = struct {
     }
 };
 
-pub const zephyr_dark = Theme{};
+pub const fusion_dark = Theme{};
 
 test "style options resolve semantic interaction colors" {
-    const value = zephyr_dark.style(.{
+    const value = fusion_dark.style(.{
         .hover_background = .interaction_hover,
         .pressed_background = .accent_pressed,
         .hover_border = .accent_border,
         .pressed_border = .accent_border_strong,
     });
-    try std.testing.expectEqual(zephyr_dark.palette.interaction_hover, value.hover_background.?);
-    try std.testing.expectEqual(zephyr_dark.palette.accent_pressed, value.pressed_background.?);
-    try std.testing.expectEqual(zephyr_dark.palette.accent_border, value.hover_border_color.?);
-    try std.testing.expectEqual(zephyr_dark.palette.accent_border_strong, value.pressed_border_color.?);
+    try std.testing.expectEqual(fusion_dark.palette.interaction_hover, value.hover_background.?);
+    try std.testing.expectEqual(fusion_dark.palette.accent_pressed, value.pressed_background.?);
+    try std.testing.expectEqual(fusion_dark.palette.accent_border, value.hover_border_color.?);
+    try std.testing.expectEqual(fusion_dark.palette.accent_border_strong, value.pressed_border_color.?);
 }
