@@ -3,6 +3,16 @@ const style_mod = @import("style.zig");
 const layout_mod = @import("layout.zig");
 const dirty_mod = @import("dirty.zig");
 
+pub const ColorWheelVisual = struct {
+    hue: f32 = 0,
+    saturation: f32 = 0,
+    value: f32 = 0,
+};
+
+pub const CustomPaint = union(enum) {
+    color_wheel: ColorWheelVisual,
+};
+
 pub const NodeKind = enum {
     root,
     panel,
@@ -65,6 +75,7 @@ pub const Node = struct {
     text_storage: ?[]u8 = null,
     text_revision: u32 = 0,
     image: ?Image = null,
+    custom_paint: ?CustomPaint = null,
 
     // Cached text measurement, valid while the text is unchanged and the
     // font size matches. A negative size marks the cache invalid.

@@ -43,6 +43,8 @@ const DemoState = struct {
     dock: ui.DockManager,
     refs: DemoDockRefs,
     nodes: DemoNodes,
+    color_picker: ui.ColorPicker,
+    selected_color: ui.Color,
 
     pub fn init(allocator: std.mem.Allocator, app_state: *ui.Ui) !DemoState {
         var dock = try ui.DockManager.init(allocator);
@@ -50,15 +52,21 @@ const DemoState = struct {
 
         const refs = try createDockTree(&dock);
         const nodes = try createEditorUi(app_state);
+        const selected_color = ui.Color.rgba(62, 101, 176, 255);
+        var color_picker = try ui.ColorPicker.init(allocator, app_state, nodes.right_panel, selected_color, .{ .wheel_diameter = 240 });
+        errdefer color_picker.deinit(app_state);
 
         return .{
             .dock = dock,
             .refs = refs,
             .nodes = nodes,
+            .color_picker = color_picker,
+            .selected_color = selected_color,
         };
     }
 
-    pub fn deinit(self: *DemoState) void {
+    pub fn deinit(self: *DemoState, app_state: *ui.Ui) void {
+        self.color_picker.deinit(app_state);
         self.dock.deinit();
     }
 
@@ -184,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
     state.setFontAtlas(&font_atlas);
 
     var demo = try DemoState.init(init.gpa, &state);
-    defer demo.deinit();
+    defer demo.deinit(&state);
     var click_count: u32 = 0;
     try state.setActivationHandler(demo.nodes.click_button, ui.EventHandler.bind(&click_count, incrementClickCount));
 
@@ -206,6 +214,7 @@ pub fn main(init: std.process.Init) !void {
             demo.layoutDock(size);
         }
         demo.applyPanelStyles(&state);
+        _ = try demo.color_picker.update(&state, &demo.selected_color);
 
         var click_buf: [64]u8 = undefined;
         try state.setText(demo.nodes.click_label, try std.fmt.bufPrint(&click_buf, "Clicks {d}", .{click_count}));

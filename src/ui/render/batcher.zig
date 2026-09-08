@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const style_mod = @import("../core/style.zig");
 const text_mod = @import("../core/text.zig");
+const color_mod = @import("../core/color.zig");
 const paint = @import("../core/paint.zig");
 const draw_data = @import("draw_data.zig");
 const font_atlas_mod = @import("font_atlas.zig");
@@ -10,6 +11,8 @@ const default_clip: types.Rect = .{ .x = 0, .y = 0, .w = 100000, .h = 100000 };
 const max_corner_segments: usize = 10;
 const rounded_point_count: usize = 4 * (max_corner_segments + 1);
 const max_antialias_width: f32 = 1;
+const color_wheel_segments: usize = 96;
+const marker_segments: usize = 24;
 
 const CornerSegments = [4]usize;
 
@@ -104,6 +107,7 @@ pub const Batcher = struct {
                 .rect => |rect| try self.addFilledRect(rect.rect, rect.color, rect.radius),
                 .border => |border| try self.addBorder(border),
                 .image => |image| try self.addImage(image),
+                .color_wheel => |wheel| try self.addColorWheel(wheel),
                 .text => |text| {
                     if (font_atlas) |atlas| {
                         try self.addText(text, atlas, text_raster_scale);
@@ -328,6 +332,171 @@ pub const Batcher = struct {
         try self.addTexturedRect(image.rect, image.uv0, image.uv1, image.tint, image.texture);
     }
 
+    fn addColorWheel(self: *Batcher, wheel: paint.ColorWheelPaint) !void {
+        if (wheel.rect.isEmpty()) return;
+        const geometry = color_mod.WheelGeometry.init(wheel.rect, wheel.hue);
+        if (geometry.outer_radius <= 0 or geometry.inner_radius <= 0) return;
+        try self.ensureBatch(self.solid_texture, self.currentClip());
+
+        var segment: usize = 0;
+        while (segment < color_wheel_segments) : (segment += 1) {
+            const hue0 = @as(f32, @floatFromInt(segment)) / @as(f32, @floatFromInt(color_wheel_segments));
+            const hue1 = @as(f32, @floatFromInt(segment + 1)) / @as(f32, @floatFromInt(color_wheel_segments));
+            const angle0 = hue0 * std.math.tau;
+            const angle1 = hue1 * std.math.tau;
+            const color0 = color_mod.hsvToRgb(.{ .h = hue0, .s = 1, .v = 1 }, 255);
+            const color1 = color_mod.hsvToRgb(.{ .h = hue1, .s = 1, .v = 1 }, 255);
+            const outer0 = circlePoint(geometry.center, geometry.outer_radius, angle0);
+            const outer1 = circlePoint(geometry.center, geometry.outer_radius, angle1);
+            const inner0 = circlePoint(geometry.center, geometry.inner_radius, angle0);
+            const inner1 = circlePoint(geometry.center, geometry.inner_radius, angle1);
+            try self.addColoredQuadToCurrentBatch(inner0, outer0, outer1, inner1, color0, color0, color1, color1);
+
+            if (self.antialias_width > 0) {
+                const fringe_outer0 = circlePoint(geometry.center, geometry.outer_radius + self.antialias_width, angle0);
+                const fringe_outer1 = circlePoint(geometry.center, geometry.outer_radius + self.antialias_width, angle1);
+                try self.addColoredQuadToCurrentBatch(
+                    outer0,
+                    fringe_outer0,
+                    fringe_outer1,
+                    outer1,
+                    color0,
+                    withAlpha(color0, 0),
+                    withAlpha(color1, 0),
+                    color1,
+                );
+
+                const fringe_inner0 = circlePoint(geometry.center, @max(0, geometry.inner_radius - self.antialias_width), angle0);
+                const fringe_inner1 = circlePoint(geometry.center, @max(0, geometry.inner_radius - self.antialias_width), angle1);
+                try self.addColoredQuadToCurrentBatch(
+                    fringe_inner0,
+                    inner0,
+                    inner1,
+                    fringe_inner1,
+                    withAlpha(color0, 0),
+                    color0,
+                    color1,
+                    withAlpha(color1, 0),
+                );
+            }
+        }
+
+        const hue_color = color_mod.hsvToRgb(.{ .h = wheel.hue, .s = 1, .v = 1 }, 255);
+        const white = types.Color.rgba(255, 255, 255, 255);
+        const black = types.Color.rgba(0, 0, 0, 255);
+        try self.addColoredTriangleToCurrentBatch(
+            geometry.hue_point,
+            geometry.white_point,
+            geometry.black_point,
+            hue_color,
+            white,
+            black,
+        );
+        try self.addTriangleFringe(
+            geometry.hue_point,
+            geometry.white_point,
+            geometry.black_point,
+            hue_color,
+            white,
+            black,
+        );
+
+        const marker_dark = types.Color.rgba(12, 12, 15, 230);
+        const marker_light = types.Color.rgba(255, 255, 255, 245);
+        const hue_angle = wheel.hue * std.math.tau;
+        const hue_marker = circlePoint(geometry.center, (geometry.inner_radius + geometry.outer_radius) * 0.5, hue_angle);
+        const selected = color_mod.hsvToRgb(.{ .h = wheel.hue, .s = wheel.saturation, .v = wheel.value }, 255);
+        const sv_marker = geometry.pointForSv(wheel.saturation, wheel.value);
+        try self.addMarker(hue_marker, hue_color, marker_dark, marker_light);
+        try self.addMarker(sv_marker, selected, marker_dark, marker_light);
+    }
+
+    fn addTriangleFringe(
+        self: *Batcher,
+        a: types.Vec2,
+        b: types.Vec2,
+        c: types.Vec2,
+        color_a: types.Color,
+        color_b: types.Color,
+        color_c: types.Color,
+    ) !void {
+        if (self.antialias_width <= 0) return;
+        const center: types.Vec2 = .{ .x = (a.x + b.x + c.x) / 3, .y = (a.y + b.y + c.y) / 3 };
+        const outer_a = outsetPoint(a, center, self.antialias_width);
+        const outer_b = outsetPoint(b, center, self.antialias_width);
+        const outer_c = outsetPoint(c, center, self.antialias_width);
+        try self.addColoredQuadToCurrentBatch(a, outer_a, outer_b, b, color_a, withAlpha(color_a, 0), withAlpha(color_b, 0), color_b);
+        try self.addColoredQuadToCurrentBatch(b, outer_b, outer_c, c, color_b, withAlpha(color_b, 0), withAlpha(color_c, 0), color_c);
+        try self.addColoredQuadToCurrentBatch(c, outer_c, outer_a, a, color_c, withAlpha(color_c, 0), withAlpha(color_a, 0), color_a);
+    }
+
+    fn addMarker(self: *Batcher, center: types.Vec2, selected: types.Color, dark: types.Color, light: types.Color) !void {
+        try self.addColoredCircleToCurrentBatch(center, 7, dark);
+        try self.addColoredCircleToCurrentBatch(center, 5, light);
+        try self.addColoredCircleToCurrentBatch(center, 3, selected);
+    }
+
+    fn addColoredCircleToCurrentBatch(self: *Batcher, center: types.Vec2, radius: f32, color: types.Color) !void {
+        const base: u32 = @intCast(self.vertices.items.len);
+        try self.vertices.ensureUnusedCapacity(self.allocator, marker_segments + 1);
+        self.vertices.appendAssumeCapacity(.{ .pos = .{ center.x, center.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color.toU32() });
+        for (0..marker_segments) |index| {
+            const angle = @as(f32, @floatFromInt(index)) / @as(f32, @floatFromInt(marker_segments)) * std.math.tau;
+            const point = circlePoint(center, radius, angle);
+            self.vertices.appendAssumeCapacity(.{ .pos = .{ point.x, point.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color.toU32() });
+        }
+        try self.indices.ensureUnusedCapacity(self.allocator, marker_segments * 3);
+        for (0..marker_segments) |index| {
+            const current = base + 1 + @as(u32, @intCast(index));
+            const next = base + 1 + @as(u32, @intCast((index + 1) % marker_segments));
+            self.indices.appendSliceAssumeCapacity(&.{ base, current, next });
+        }
+        self.batches.items[self.batches.items.len - 1].index_count += marker_segments * 3;
+    }
+
+    fn addColoredTriangleToCurrentBatch(
+        self: *Batcher,
+        a: types.Vec2,
+        b: types.Vec2,
+        c: types.Vec2,
+        color_a: types.Color,
+        color_b: types.Color,
+        color_c: types.Color,
+    ) !void {
+        const base: u32 = @intCast(self.vertices.items.len);
+        try self.vertices.ensureUnusedCapacity(self.allocator, 3);
+        self.vertices.appendSliceAssumeCapacity(&.{
+            .{ .pos = .{ a.x, a.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_a.toU32() },
+            .{ .pos = .{ b.x, b.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_b.toU32() },
+            .{ .pos = .{ c.x, c.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_c.toU32() },
+        });
+        try self.indices.appendSlice(self.allocator, &.{ base, base + 1, base + 2 });
+        self.batches.items[self.batches.items.len - 1].index_count += 3;
+    }
+
+    fn addColoredQuadToCurrentBatch(
+        self: *Batcher,
+        a: types.Vec2,
+        b: types.Vec2,
+        c: types.Vec2,
+        d: types.Vec2,
+        color_a: types.Color,
+        color_b: types.Color,
+        color_c: types.Color,
+        color_d: types.Color,
+    ) !void {
+        const base: u32 = @intCast(self.vertices.items.len);
+        try self.vertices.ensureUnusedCapacity(self.allocator, 4);
+        self.vertices.appendSliceAssumeCapacity(&.{
+            .{ .pos = .{ a.x, a.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_a.toU32() },
+            .{ .pos = .{ b.x, b.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_b.toU32() },
+            .{ .pos = .{ c.x, c.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_c.toU32() },
+            .{ .pos = .{ d.x, d.y }, .uv = .{ self.solid_uv.x, self.solid_uv.y }, .color = color_d.toU32() },
+        });
+        try self.indices.appendSlice(self.allocator, &.{ base, base + 1, base + 2, base, base + 2, base + 3 });
+        self.batches.items[self.batches.items.len - 1].index_count += 6;
+    }
+
     fn addGlyphQuadToCurrentBatch(self: *Batcher, rect: types.Rect, glyph: font_atlas_mod.Glyph, color: types.Color) !void {
         try self.addTexturedRectToCurrentBatch(
             rect,
@@ -529,6 +698,19 @@ pub const Batcher = struct {
 
 fn rectEqual(a: types.Rect, b: types.Rect) bool {
     return a.x == b.x and a.y == b.y and a.w == b.w and a.h == b.h;
+}
+
+fn circlePoint(center: types.Vec2, radius: f32, angle: f32) types.Vec2 {
+    return .{ .x = center.x + @cos(angle) * radius, .y = center.y + @sin(angle) * radius };
+}
+
+fn outsetPoint(point: types.Vec2, center: types.Vec2, amount: f32) types.Vec2 {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    const length = @sqrt(dx * dx + dy * dy);
+    if (length <= 0.0001) return point;
+    const scale = (length + amount) / length;
+    return .{ .x = center.x + dx * scale, .y = center.y + dy * scale };
 }
 
 fn uniformBorderWidth(widths: style_mod.Edges) ?f32 {
@@ -790,4 +972,31 @@ test "solid and text commands share the font atlas batch" {
     try std.testing.expectEqual(@as(usize, 1), data.batches.len);
     try std.testing.expectEqual(atlas.texture, data.batches[0].texture);
     try std.testing.expectEqual(atlas.whiteUv().x, data.vertices[0].uv[0]);
+}
+
+test "color wheel emits one solid batch with interpolated hue geometry" {
+    var batcher = Batcher.init(std.testing.allocator);
+    defer batcher.deinit();
+
+    const data = try batcher.build(&.{.{ .color_wheel = .{
+        .rect = .{ .x = 10, .y = 20, .w = 224, .h = 224 },
+        .hue = 0.6,
+        .saturation = 0.7,
+        .value = 0.8,
+    } }}, null, 1);
+
+    try std.testing.expectEqual(@as(usize, 1), data.batches.len);
+    try std.testing.expect(data.vertices.len > color_wheel_segments * 4);
+    try std.testing.expect(data.indices.len > color_wheel_segments * 6);
+    for (data.indices) |index| try std.testing.expect(index < data.vertices.len);
+
+    var found_red = false;
+    var found_green = false;
+    var found_blue = false;
+    for (data.vertices) |vertex| {
+        found_red = found_red or vertex.color == types.Color.rgba(255, 0, 0, 255).toU32();
+        found_green = found_green or vertex.color == types.Color.rgba(0, 255, 0, 255).toU32();
+        found_blue = found_blue or vertex.color == types.Color.rgba(0, 0, 255, 255).toU32();
+    }
+    try std.testing.expect(found_red and found_green and found_blue);
 }

@@ -83,3 +83,5 @@ pub const Collapsible = widgets.Collapsible;
 pub const CollapsibleOptions = widgets.CollapsibleOptions;
 pub const SelectionList = widgets.SelectionList;
 pub const Modal = widgets.Modal;
+pub const ColorPicker = widgets.ColorPicker;
+pub const ColorPickerOptions = widgets.ColorPickerOptions;

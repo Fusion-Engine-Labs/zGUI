@@ -15,6 +15,7 @@ pub const numeric_field = @import("numeric_field.zig");
 pub const collapsible = @import("collapsible.zig");
 pub const selection = @import("selection.zig");
 pub const modal = @import("modal.zig");
+pub const color_picker = @import("color_picker.zig");
 pub const dock_space_mod = @import("../docking/dock_space.zig");
 
 pub const panel = panel_mod.panel;
@@ -60,6 +61,8 @@ pub const Collapsible = collapsible.Collapsible;
 pub const CollapsibleOptions = collapsible.Options;
 pub const SelectionList = selection.SelectionList;
 pub const Modal = modal.Modal;
+pub const ColorPicker = color_picker.ColorPicker;
+pub const ColorPickerOptions = color_picker.Options;
 pub const dockSpace = dock_space_mod.dockSpace;
 pub const CardOptions = primitives_mod.CardOptions;
 pub const PillOptions = primitives_mod.PillOptions;
@@ -89,6 +92,11 @@ test "editable retained controls mount update and unmount headlessly" {
     defer number.deinit(&ui);
     var number_value: f32 = 2.5;
     _ = try number.updateF32(&ui, &number_value, .{ .min = 0, .max = 10 });
+
+    var picker = try ColorPicker.init(std.testing.allocator, &ui, ui.rootNode(), @import("../core/types.zig").Color.rgba(32, 96, 180, 220), .{});
+    defer picker.deinit(&ui);
+    var picked = @import("../core/types.zig").Color.rgba(32, 96, 180, 220);
+    _ = try picker.update(&ui, &picked);
 
     const overlay = try surface(&ui, ui.rootNode(), .{ .width = .fill, .height = .fill, .direction = .absolute });
     var list = try SelectionList.init(std.testing.allocator, &ui, overlay);

@@ -21,6 +21,8 @@ pub const TextureHandle = types.TextureHandle;
 pub const Vec2 = types.Vec2;
 pub const Rect = types.Rect;
 pub const Color = types.Color;
+pub const ColorPicker = widgets.ColorPicker;
+pub const ColorPickerOptions = widgets.ColorPickerOptions;
 
 test {
     // Re-exports are only analyzed when something names them, so reference the

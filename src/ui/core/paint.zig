@@ -8,6 +8,7 @@ pub const PaintCommand = union(enum) {
     rect: RectPaint,
     border: BorderPaint,
     image: ImagePaint,
+    color_wheel: ColorWheelPaint,
     text: TextPaint,
     clip_push: types.Rect,
     clip_pop,
@@ -45,6 +46,13 @@ pub const ImagePaint = struct {
     uv1: types.Vec2 = .{ .x = 1, .y = 1 },
     tint: types.Color = types.Color.rgba(255, 255, 255, 255),
     radius: style_mod.CornerRadii = .{},
+};
+
+pub const ColorWheelPaint = struct {
+    rect: types.Rect,
+    hue: f32,
+    saturation: f32,
+    value: f32,
 };
 
 pub const PaintList = struct {
@@ -161,6 +169,19 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
         } else if (box_culled) {
             stats.culled_commands += 1;
         };
+    }
+
+    if (node.custom_paint) |custom| {
+        if (box_visible) switch (custom) {
+            .color_wheel => |wheel| try list.append(.{ .color_wheel = .{
+                .rect = node.bounds,
+                .hue = wheel.hue,
+                .saturation = wheel.saturation,
+                .value = wheel.value,
+            } }),
+        } else if (box_culled) {
+            stats.culled_commands += 1;
+        }
     }
 
     const border_widths = node.style.border_edges orelse style_mod.Edges.all(node.style.border_width);

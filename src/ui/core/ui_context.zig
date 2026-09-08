@@ -317,6 +317,16 @@ pub const Ui = struct {
         dirty_mod.markPaintDirty(&self.tree, id);
     }
 
+    pub fn setColorWheelVisual(self: *Ui, id: types.NodeId, visual: node_mod.ColorWheelVisual) !void {
+        const node = self.tree.get(id) orelse return error.InvalidNode;
+        const next = node_mod.CustomPaint{ .color_wheel = visual };
+        if (node.custom_paint) |existing| {
+            if (std.meta.eql(existing, next)) return;
+        }
+        node.custom_paint = next;
+        dirty_mod.markPaintDirty(&self.tree, id);
+    }
+
     pub fn bounds(self: *const Ui, id: types.NodeId) ?types.Rect {
         const node = self.tree.getConst(id) orelse return null;
         return node.bounds;
