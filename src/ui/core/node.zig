@@ -40,6 +40,9 @@ pub const NodeFlags = packed struct {
     clipped: bool = false,
     focusable: bool = false,
     accepts_text_input: bool = false,
+    /// Positioned against its parent's content box without consuming space in
+    /// a row or column. Used by root-level popup and modal overlay hosts.
+    out_of_flow: bool = false,
 };
 
 pub const Node = struct {

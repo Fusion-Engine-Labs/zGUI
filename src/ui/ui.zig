@@ -85,3 +85,5 @@ pub const SelectionList = widgets.SelectionList;
 pub const Modal = widgets.Modal;
 pub const ColorPicker = widgets.ColorPicker;
 pub const ColorPickerOptions = widgets.ColorPickerOptions;
+pub const ColorPickerPanel = widgets.ColorPickerPanel;
+pub const ColorPickerPanelOptions = widgets.ColorPickerPanelOptions;

@@ -115,7 +115,10 @@ fn buildPaintNode(tree: *const tree_mod.UiTree, root: types.NodeId, list: *Paint
             return;
         }
     }
-    if (clipped) try list.append(.{ .clip_push = node.bounds });
+    // Keep the antialiased fringe of a clipped control's own border visible.
+    // Text fields clip their contents, but their rounded frame extends one
+    // pixel beyond its layout bounds while being rasterized.
+    if (clipped) try list.append(.{ .clip_push = node.bounds.outset(1) });
 
     var background = node.style.background;
     var border = node.style.border_color;

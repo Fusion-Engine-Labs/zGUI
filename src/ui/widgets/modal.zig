@@ -18,6 +18,7 @@ pub const Modal = struct {
         const node = ui.tree.get(root).?;
         node.flags.interactive = true;
         node.flags.focusable = true;
+        node.flags.out_of_flow = true;
         const content = try primitives.card(ui, root, .{ .width = .hug, .height = .hug });
         try ui.setVisible(root, false);
         return .{ .root_node = root, .content_node = content };

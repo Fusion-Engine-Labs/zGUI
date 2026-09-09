@@ -23,6 +23,8 @@ pub const Rect = types.Rect;
 pub const Color = types.Color;
 pub const ColorPicker = widgets.ColorPicker;
 pub const ColorPickerOptions = widgets.ColorPickerOptions;
+pub const ColorPickerPanel = widgets.ColorPickerPanel;
+pub const ColorPickerPanelOptions = widgets.ColorPickerPanelOptions;
 
 test {
     // Re-exports are only analyzed when something names them, so reference the

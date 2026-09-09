@@ -77,6 +77,10 @@ fn measureNode(tree: *tree_mod.UiTree, id: types.NodeId, font_atlas: ?*font_atla
             continue;
         }
         const child_size = measureNode(tree, child, font_atlas, force_full, stats);
+        if (child_node.flags.out_of_flow) {
+            child = child_node.next_sibling;
+            continue;
+        }
         child_count += 1;
         switch (node.style.direction) {
             .row => {
@@ -228,6 +232,10 @@ fn layoutLinear(tree: *tree_mod.UiTree, first_child: types.NodeId, content: type
             child = child_node.next_sibling;
             continue;
         }
+        if (child_node.flags.out_of_flow) {
+            child = child_node.next_sibling;
+            continue;
+        }
         child_count += 1;
         const margin_major = if (axis == .x) child_node.style.margin.horizontal() else child_node.style.margin.vertical();
         const min_major = if (axis == .x) child_node.style.min_width else child_node.style.min_height;
@@ -259,6 +267,23 @@ fn layoutLinear(tree: *tree_mod.UiTree, first_child: types.NodeId, content: type
         }
         const margin = child_node.style.margin;
         const old_bounds = child_node.bounds;
+
+        if (child_node.flags.out_of_flow) {
+            const width = resolveSize(child_node.style.width, .x, content, child_node.layout.intrinsic);
+            const height = resolveSize(child_node.style.height, .y, content, child_node.layout.intrinsic);
+            child_node.bounds = .{
+                .x = content.x + margin.left,
+                .y = content.y + margin.top,
+                .w = @max(width, child_node.style.min_width),
+                .h = @max(height, child_node.style.min_height),
+            };
+            const bounds_changed = !std.meta.eql(old_bounds, child_node.bounds);
+            if (force_descend or child_node.dirty.layout or bounds_changed) {
+                layoutChildren(tree, child, force_descend or bounds_changed, stats);
+            } else stats.skipped_clean_subtrees += 1;
+            child = next;
+            continue;
+        }
 
         const width = if (axis == .x)
             resolveLinearSize(child_node.style.width, .x, content, child_node.layout.intrinsic, fill_major)
@@ -504,6 +529,25 @@ test "invisible children do not consume layout space" {
     const stats = layoutTreeMeasured(&tree, root, .{ .x = 100, .y = 100 }, null, true);
     try std.testing.expectEqual(@as(f32, 20), tree.get(card).?.bounds.h);
     try std.testing.expect(stats.skipped_hidden_nodes > 0);
+}
+
+test "out-of-flow child covers its parent without consuming column space" {
+    var tree = tree_mod.UiTree.init(std.testing.allocator);
+    defer tree.deinit();
+
+    const root = try tree.createNode(.root);
+    const content = try tree.createNode(.panel);
+    const overlay = try tree.createNode(.panel);
+    tree.get(root).?.style = .{ .width = .fill, .height = .fill, .direction = .column };
+    tree.get(content).?.style = .{ .width = .fill, .height = .fill };
+    tree.get(overlay).?.style = .{ .width = .fill, .height = .fill };
+    tree.get(overlay).?.flags.out_of_flow = true;
+    try tree.appendChild(root, content);
+    try tree.appendChild(root, overlay);
+
+    layoutTree(&tree, root, .{ .x = 320, .y = 180 }, null);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .w = 320, .h = 180 }, tree.get(content).?.bounds);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .w = 320, .h = 180 }, tree.get(overlay).?.bounds);
 }
 
 test "relayout clamps settled scroll offsets after content shrinks" {

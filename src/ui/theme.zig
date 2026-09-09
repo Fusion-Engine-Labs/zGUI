@@ -18,59 +18,62 @@ pub const RadiusRole = enum {
 pub const Palette = struct {
     transparent: types.Color = types.Color.rgba(0, 0, 0, 0),
 
-    app: types.Color = types.Color.rgba(13, 14, 17, 255),
-    shell: types.Color = types.Color.rgba(20, 20, 24, 255),
-    panel: types.Color = types.Color.rgba(25, 25, 30, 255),
-    panel_soft: types.Color = types.Color.rgba(30, 30, 36, 255),
-    card: types.Color = types.Color.rgba(35, 35, 42, 255),
-    control: types.Color = types.Color.rgba(41, 41, 49, 255),
-    viewport: types.Color = types.Color.rgba(18, 18, 22, 255),
+    // Cool blue-grey surfaces, from the outer application shell through raised
+    // panels and cards. Controls are inset wells rather than raised chips.
+    app: types.Color = types.Color.rgba(26, 27, 36, 255),
+    shell: types.Color = types.Color.rgba(34, 35, 47, 255),
+    panel: types.Color = types.Color.rgba(39, 40, 53, 255),
+    panel_soft: types.Color = types.Color.rgba(44, 45, 59, 255),
+    card: types.Color = types.Color.rgba(50, 51, 66, 255),
+    control: types.Color = types.Color.rgba(24, 24, 33, 255),
+    viewport: types.Color = types.Color.rgba(20, 21, 29, 255),
 
-    stroke: types.Color = types.Color.rgba(58, 58, 68, 255),
-    stroke_soft: types.Color = types.Color.rgba(42, 42, 50, 255),
-    overlay: types.Color = types.Color.rgba(17, 18, 22, 232),
-    overlay_soft: types.Color = types.Color.rgba(30, 30, 36, 220),
-    overlay_stroke: types.Color = types.Color.rgba(255, 255, 255, 24),
-    interaction_hover: types.Color = types.Color.rgba(255, 255, 255, 18),
-    interaction_pressed: types.Color = types.Color.rgba(255, 255, 255, 30),
+    stroke: types.Color = types.Color.rgba(61, 63, 80, 255),
+    stroke_soft: types.Color = types.Color.rgba(46, 47, 58, 255),
+    overlay: types.Color = types.Color.rgba(26, 27, 36, 242),
+    overlay_soft: types.Color = types.Color.rgba(34, 35, 47, 234),
+    overlay_stroke: types.Color = types.Color.rgba(206, 210, 228, 30),
+    interaction_hover: types.Color = types.Color.rgba(206, 210, 228, 18),
+    interaction_pressed: types.Color = types.Color.rgba(144, 131, 216, 40),
 
-    text: types.Color = types.Color.rgba(245, 245, 246, 255),
-    text_dim: types.Color = types.Color.rgba(177, 179, 187, 255),
-    text_muted: types.Color = types.Color.rgba(123, 126, 136, 255),
-    text_disabled: types.Color = types.Color.rgba(91, 94, 106, 160),
-    icon: types.Color = types.Color.rgba(194, 198, 207, 255),
-    icon_selected: types.Color = types.Color.rgba(224, 213, 255, 255),
-    icon_disabled: types.Color = types.Color.rgba(112, 115, 124, 160),
+    text: types.Color = types.Color.rgba(226, 229, 241, 255),
+    text_dim: types.Color = types.Color.rgba(177, 181, 201, 255),
+    text_muted: types.Color = types.Color.rgba(146, 150, 170, 255),
+    text_disabled: types.Color = types.Color.rgba(110, 114, 134, 170),
+    icon: types.Color = types.Color.rgba(177, 181, 201, 255),
+    icon_selected: types.Color = types.Color.rgba(144, 131, 216, 255),
+    icon_disabled: types.Color = types.Color.rgba(110, 114, 134, 160),
 
-    accent: types.Color = types.Color.rgba(139, 92, 246, 255),
-    accent_soft: types.Color = types.Color.rgba(48, 36, 78, 255),
-    accent_hover: types.Color = types.Color.rgba(139, 92, 246, 50),
-    accent_pressed: types.Color = types.Color.rgba(139, 92, 246, 70),
-    accent_border: types.Color = types.Color.rgba(139, 92, 246, 150),
-    accent_border_strong: types.Color = types.Color.rgba(167, 139, 250, 220),
-    violet: types.Color = types.Color.rgba(167, 139, 250, 255),
-    violet_soft: types.Color = types.Color.rgba(48, 40, 82, 255),
+    // Lavender is the single focus, selection, and primary-action accent.
+    accent: types.Color = types.Color.rgba(144, 131, 216, 255),
+    accent_soft: types.Color = types.Color.rgba(68, 61, 105, 255),
+    accent_hover: types.Color = types.Color.rgba(144, 131, 216, 40),
+    accent_pressed: types.Color = types.Color.rgba(144, 131, 216, 70),
+    accent_border: types.Color = types.Color.rgba(144, 131, 216, 160),
+    accent_border_strong: types.Color = types.Color.rgba(209, 205, 253, 235),
+    violet: types.Color = types.Color.rgba(163, 148, 255, 255),
+    violet_soft: types.Color = types.Color.rgba(55, 50, 83, 255),
 
-    success: types.Color = types.Color.rgba(64, 190, 122, 255),
-    success_soft: types.Color = types.Color.rgba(31, 58, 43, 255),
-    warning: types.Color = types.Color.rgba(245, 158, 11, 255),
-    warning_soft: types.Color = types.Color.rgba(69, 48, 19, 255),
-    danger: types.Color = types.Color.rgba(239, 68, 68, 255),
-    danger_soft: types.Color = types.Color.rgba(74, 32, 32, 255),
+    success: types.Color = types.Color.rgba(140, 205, 160, 255),
+    success_soft: types.Color = types.Color.rgba(42, 56, 50, 255),
+    warning: types.Color = types.Color.rgba(223, 194, 139, 255),
+    warning_soft: types.Color = types.Color.rgba(58, 50, 40, 255),
+    danger: types.Color = types.Color.rgba(223, 152, 152, 255),
+    danger_soft: types.Color = types.Color.rgba(54, 44, 55, 255),
 };
 
 pub const Radius = struct {
-    control: f32 = 10,
-    card: f32 = 12,
-    viewport: f32 = 14,
-    pill: f32 = 12,
+    control: f32 = 6,
+    card: f32 = 8,
+    viewport: f32 = 0,
+    pill: f32 = 8,
     round: f32 = 999,
 };
 
 pub const Space = struct {
     xxs: f32 = 2,
-    xs: f32 = 4,
-    sm: f32 = 6,
+    xs: f32 = 3,
+    sm: f32 = 5,
     md: f32 = 8,
     lg: f32 = 10,
     xl: f32 = 12,
@@ -78,11 +81,11 @@ pub const Space = struct {
 };
 
 pub const Font = struct {
-    tiny: f32 = 11,
-    small: f32 = 12,
-    body: f32 = 13,
-    title: f32 = 16,
-    brand: f32 = 18,
+    tiny: f32 = 13,
+    small: f32 = 14,
+    body: f32 = 15,
+    title: f32 = 18,
+    brand: f32 = 20,
 
     /// Every size the theme can ask for, so a glyph prewarm covers the real
     /// working set instead of a hand-copied list that drifts when a token moves.
@@ -96,11 +99,11 @@ pub const Font = struct {
 };
 
 pub const Metrics = struct {
-    control_height: f32 = 34,
-    compact_control_height: f32 = 28,
-    section_header_height: f32 = 40,
+    control_height: f32 = 32,
+    compact_control_height: f32 = 26,
+    section_header_height: f32 = 38,
     dock_tab_height: f32 = 30,
-    dock_handle_thickness: f32 = 4,
+    dock_handle_thickness: f32 = 2,
 };
 
 pub const StyleOptions = struct {
